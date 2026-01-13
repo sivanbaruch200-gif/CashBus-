@@ -173,8 +173,12 @@ export async function handleSettlementProofVerified(
  * Send email requesting settlement proof upload
  */
 async function sendSettlementProofRequestEmail(claim: any): Promise<void> {
+  // Handle profiles as array (Supabase returns arrays for relations)
+  const profile = Array.isArray(claim.profiles) ? claim.profiles[0] : claim.profiles
+  if (!profile) return
+
   const emailBody = `
-שלום ${claim.profiles.full_name},
+שלום ${profile.full_name},
 
 🎉 מזל טוב! התביעה שלך אושרה!
 
@@ -202,7 +206,7 @@ ${process.env.NEXT_PUBLIC_SITE_URL}/claims/${claim.id}
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      to: claim.profiles.email,
+      to: profile.email,
       subject: '🎉 מזל טוב! התביעה אושרה - נא להעלות אסמכתא',
       body: emailBody,
     }),
@@ -225,8 +229,12 @@ async function sendUserConfirmationEmail(
 
   if (!claim) return
 
+  // Handle profiles as array (Supabase returns arrays for relations)
+  const profile = Array.isArray(claim.profiles) ? claim.profiles[0] : claim.profiles
+  if (!profile) return
+
   const emailBody = `
-שלום ${claim.profiles.full_name},
+שלום ${profile.full_name},
 
 ✅ האסמכתא שלך התקבלה בהצלחה!
 
@@ -247,7 +255,7 @@ async function sendUserConfirmationEmail(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      to: claim.profiles.email,
+      to: profile.email,
       subject: '✅ האסמכתא התקבלה - בבדיקה',
       body: emailBody,
     }),
@@ -302,8 +310,12 @@ async function sendCommissionInvoiceEmail(
 
   if (!claim) return
 
+  // Handle profiles as array (Supabase returns arrays for relations)
+  const profile = Array.isArray(claim.profiles) ? claim.profiles[0] : claim.profiles
+  if (!profile) return
+
   const emailBody = `
-שלום ${claim.profiles.full_name},
+שלום ${profile.full_name},
 
 ✅ האסמכתא שלך אומתה!
 
@@ -325,7 +337,7 @@ ${stripeInvoiceUrl}
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      to: claim.profiles.email,
+      to: profile.email,
       subject: `💰 חשבונית לתשלום - עמלת הצלחה ${commissionAmount} ש"ח`,
       body: emailBody,
     }),
@@ -479,8 +491,12 @@ async function sendPaymentReminder(
 
   if (!claim) return
 
+  // Handle profiles as array (Supabase returns arrays for relations)
+  const profile = Array.isArray(claim.profiles) ? claim.profiles[0] : claim.profiles
+  if (!profile) return
+
   const emailBody = `
-שלום ${claim.profiles.full_name},
+שלום ${profile.full_name},
 
 🔔 תזכורת ידידותית: עדיין לא שילמת את עמלת ההצלחה.
 
@@ -497,7 +513,7 @@ ${paymentUrl}
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      to: claim.profiles.email,
+      to: profile.email,
       subject: '🔔 תזכורת: תשלום עמלת הצלחה',
       body: emailBody,
     }),
