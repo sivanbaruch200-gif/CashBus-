@@ -7,10 +7,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { MINISTRY_EMAIL } from '@/lib/legalSubmissions'
+import { Resend } from 'resend'
 
-// TODO: Install Resend: npm install resend
-// import { Resend } from 'resend'
-// const resend = new Resend(process.env.RESEND_API_KEY)
+const resend = new Resend(process.env.RESEND_API_KEY || 'placeholder_key')
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,8 +37,7 @@ export async function POST(request: NextRequest) {
     }
     const pdfBuffer = await pdfResponse.arrayBuffer()
 
-    // TODO: Uncomment when Resend is installed
-    /*
+    // Send email with Resend
     const { data, error } = await resend.emails.send({
       from: 'CashBus Legal <legal@cashbus.co.il>',
       to: [to],
@@ -57,7 +55,7 @@ export async function POST(request: NextRequest) {
         },
       ],
       headers: {
-        'X-CashBus-Submission-ID': submissionId,
+        'X-CashBus-Submission-ID': submissionId || 'unknown',
       },
     })
 
@@ -72,24 +70,6 @@ export async function POST(request: NextRequest) {
       to,
       bcc: bccList,
       ministryNotified: true,
-    })
-    */
-
-    // TEMPORARY: Mock response for development
-    console.log('📧 MOCK EMAIL SENT')
-    console.log('To:', to)
-    console.log('BCC:', bccList)
-    console.log('Subject:', subject)
-    console.log('Ministry Notified:', bccList.includes(MINISTRY_EMAIL))
-
-    return NextResponse.json({
-      success: true,
-      messageId: `mock-${Date.now()}`,
-      to,
-      bcc: bccList,
-      ministryNotified: true,
-      mock: true,
-      note: 'Install Resend to enable real email sending: npm install resend',
     })
   } catch (error) {
     console.error('Error sending legal email:', error)

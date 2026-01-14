@@ -14,8 +14,8 @@ export default function Home() {
         const session = await getSession()
 
         if (session) {
-          // User is logged in - go to dashboard
-          router.push('/claims')
+          // User is logged in - go to main dashboard
+          router.push('/dashboard')
         } else {
           // User is not logged in - go to auth
           router.push('/auth')

@@ -30,6 +30,8 @@ import {
   Clock,
   Download,
   Loader2,
+  Send,
+  Mail,
 } from 'lucide-react'
 
 interface IncidentDetail {
@@ -66,6 +68,9 @@ export default function ClaimDetailPage() {
   const [pdfGenerated, setPdfGenerated] = useState(false)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfError, setPdfError] = useState<string | null>(null)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+  const [emailError, setEmailError] = useState<string | null>(null)
 
   useEffect(() => {
     if (incidentId) {
@@ -159,6 +164,89 @@ export default function ClaimDetailPage() {
       hour: '2-digit',
       minute: '2-digit',
     }).format(date)
+  }
+
+  const handleSendWarningEmail = async () => {
+    if (!incident || !pdfUrl) {
+      alert('נא ליצור מכתב התראה תחילה לפני השליחה במייל')
+      return
+    }
+
+    setSendingEmail(true)
+    setEmailError(null)
+
+    try {
+      // Get bus company email from database
+      const { data: companyData } = await supabase
+        .from('bus_companies')
+        .select('public_contact_email')
+        .eq('company_name', incident.bus_company)
+        .single()
+
+      const companyEmail = companyData?.public_contact_email
+
+      if (!companyEmail) {
+        throw new Error('לא נמצא כתובת מייל לחברת האוטובוסים')
+      }
+
+      // Send email via API
+      const response = await fetch('/api/send-legal-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: companyEmail,
+          bcc: 'Pniotcrm@mot.gov.il', // Ministry email
+          subject: `דרישה לפיצוי - ${incident.customer_name} - תקנה 428ג`,
+          body: `
+לכבוד
+${getBusCompanyName(incident.bus_company)}
+
+הנדון: דרישה לפיצוי בגין הפרת חוזה הובלה - תקנה 428ג
+
+שלום רב,
+
+אני, ${incident.customer_name}, ת.ז. XXX, פונה/ת אליכם בדרישה לפיצוי בגין אירוע מתועד של הפרת התחייבויות שירות בקו ${incident.bus_line}.
+
+האירוע המתועד: ${getIncidentTypeLabel(incident.incident_type)}
+תאריך האירוע: ${formatDateTime(incident.incident_datetime)}
+תחנה: ${incident.station_name}
+
+בהתאם לתקנה 428ג לתקנות השירותים הציבוריים (אוטובוסים), חברת ההסעה נושאת באחריות להעניק פיצוי לנוסעים עבור הפרות כאלה.
+
+סכום הפיצוי הנדרש: ${formatCurrency(calculateEstimatedCompensation())}
+
+מצ"ב מכתב התראה מפורט עם כל הפרטים המשפטיים, תיעוד GPS, ותמונות.
+
+אבקש את תשומת לבכם לטיפול בנושא זה בהקדם האפשרי. במידה ולא יתקבל מענה תוך 14 יום, נאלץ/אאלצה לפנות לבית המשפט לתביעות קטנות.
+
+בברכה,
+${incident.customer_name}
+טלפון: ${incident.customer_phone}
+
+---
+מסמך זה נוצר באמצעות מערכת CashBus - פלטפורמת זכויות נוסעים
+העתק לידיעה: משרד התחבורה (Pniotcrm@mot.gov.il)
+          `.trim(),
+          pdfUrl,
+          submissionId: incident.id,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'שליחת המייל נכשלה')
+      }
+
+      const result = await response.json()
+
+      setEmailSent(true)
+      setSendingEmail(false)
+      alert(`המכתב נשלח בהצלחה!\n\nנשלח ל: ${companyEmail}\nהעתק לידיעה: משרד התחבורה\nמזהה הודעה: ${result.messageId}`)
+    } catch (error) {
+      console.error('Error sending email:', error)
+      setEmailError(error instanceof Error ? error.message : 'שגיאה בשליחת המייל')
+      setSendingEmail(false)
+    }
   }
 
   const handleGenerateWarningLetter = async () => {
@@ -313,16 +401,42 @@ export default function ClaimDetailPage() {
                 </>
               )}
             </button>
+
             {pdfUrl && (
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                <span>הורד מכתב</span>
-              </a>
+              <>
+                <button
+                  onClick={handleSendWarningEmail}
+                  disabled={sendingEmail || emailSent}
+                  className="px-4 py-2 bg-primary-orange text-white rounded-lg hover:bg-orange-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {sendingEmail ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>שולח מייל...</span>
+                    </>
+                  ) : emailSent ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>נשלח!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>שלח למייל החברה</span>
+                    </>
+                  )}
+                </button>
+
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>הורד מכתב</span>
+                </a>
+              </>
             )}
           </div>
         </div>
@@ -364,6 +478,38 @@ export default function ClaimDetailPage() {
             </div>
             <button
               onClick={() => setPdfError(null)}
+              className="text-red-600 hover:text-red-800"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {emailSent && (
+        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <Mail className="w-5 h-5 text-blue-600 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900 mb-1">המייל נשלח בהצלחה!</h3>
+              <p className="text-sm text-blue-800">
+                מכתב ההתראה נשלח לחברת האוטובוסים + העתק למשרד התחבורה (Pniotcrm@mot.gov.il)
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {emailError && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-900 mb-1">שגיאה בשליחת המייל</h3>
+              <p className="text-sm text-red-800">{emailError}</p>
+            </div>
+            <button
+              onClick={() => setEmailError(null)}
               className="text-red-600 hover:text-red-800"
             >
               ✕
