@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSession, getUserIncidents, getUserClaims, getCurrentUserProfile, createIncidentWithPhoto, type Profile } from '@/lib/supabase'
+import { getSession, getUserIncidents, getUserClaims, getCurrentUserProfile, createIncidentWithPhoto, signOut, type Profile } from '@/lib/supabase'
 import PanicButton, { type IncidentFormData } from '@/components/PanicButton'
-import { ArrowRight, FileText, TrendingUp, AlertCircle, PiggyBank, Clock, Award } from 'lucide-react'
+import { ArrowRight, FileText, TrendingUp, AlertCircle, PiggyBank, Clock, Award, LogOut } from 'lucide-react'
 import { calculateCompensation } from '@/lib/compensation'
 
 export default function DashboardPage() {
@@ -84,6 +84,11 @@ export default function DashboardPage() {
     console.log('Panic button pressed - GPS acquisition started')
   }
 
+  const handleSignOut = async () => {
+    await signOut()
+    router.push('/auth')
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
@@ -105,13 +110,23 @@ export default function DashboardPage() {
               <h1 className="text-2xl font-bold text-gray-900">שלום, {profile?.full_name || 'משתמש'}</h1>
               <p className="text-sm text-gray-600">דווח על תקלות בזמן אמת וצבור פיצויים</p>
             </div>
-            <button
-              onClick={() => router.push('/claims')}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              <FileText className="w-5 h-5 text-gray-600" />
-              <span className="text-sm font-medium text-gray-700">התיקים שלי</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/claims')}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <FileText className="w-5 h-5 text-gray-600" />
+                <span className="text-sm font-medium text-gray-700">התיקים שלי</span>
+              </button>
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
+                title="התנתק מהמערכת"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="text-sm font-medium">התנתק</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>

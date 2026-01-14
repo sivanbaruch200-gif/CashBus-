@@ -1,119 +1,97 @@
 # CashBus - Deployment Checklist
 
-## 🎯 Pre-Deployment Steps
+## Environment Variables (Vercel)
 
-### 1. Database Setup ✓
-- [x] Supabase project created
-- [ ] **CRITICAL**: Run [supabase/schema.sql](supabase/schema.sql) in SQL Editor
-- [ ] Verify all 5 tables created
-- [ ] Verify RLS policies active
-- [ ] Verify triggers working
+וודאי שכל המשתנים הבאים מוגדרים ב-Vercel Dashboard:
 
-### 2. Environment Variables ✓
-- [x] `.env.local` created
-- [x] Supabase URL configured
-- [x] Anon key configured
-- [ ] Test environment loads without errors
-
-### 3. Authentication Setup
-- [ ] Enable Email provider in Supabase
-- [ ] Set Site URL in Supabase Auth settings
-- [ ] Add redirect URLs
-- [ ] Test user registration
-- [ ] Test user login
-- [ ] Verify profile auto-created
-
-### 4. Testing
-- [ ] Run `npm install`
-- [ ] Run `npm run dev`
-- [ ] Test `/auth` page loads
-- [ ] Register new test user
-- [ ] Login with test user
-- [ ] Press panic button
-- [ ] Verify incident created in Supabase
-- [ ] Check stats update correctly
-- [ ] Test sign out
-- [ ] Mobile responsive check
-
----
-
-## 🚀 Deployment Options
-
-### Option A: Vercel (Recommended)
-```bash
-# 1. Install Vercel CLI
-npm i -g vercel
-
-# 2. Login
-vercel login
-
-# 3. Deploy
-vercel
-
-# 4. Add environment variables in Vercel dashboard
-# Settings → Environment Variables
-NEXT_PUBLIC_SUPABASE_URL=https://ltlfifqtprtkwprwwpxq.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_key_here
+### 1. Supabase Configuration
+```
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-### Option B: Netlify
-```bash
-# 1. Install Netlify CLI
-npm i -g netlify-cli
-
-# 2. Build
-npm run build
-
-# 3. Deploy
-netlify deploy --prod
-
-# 4. Set environment variables in Netlify dashboard
+### 2. Resend Email API
+```
+RESEND_API_KEY=your_resend_api_key
 ```
 
----
-
-## ⚙️ Post-Deployment
-
-### 1. Update Supabase Auth Settings
-- Site URL: `https://your-domain.vercel.app`
-- Redirect URLs: `https://your-domain.vercel.app/auth`
-
-### 2. Test Production
-- [ ] Visit production URL
-- [ ] Register new user
-- [ ] Test panic button
-- [ ] Verify GPS permissions work
-- [ ] Check Supabase data created
-
-### 3. Monitor
-- [ ] Check Vercel/Netlify logs
-- [ ] Check Supabase logs
-- [ ] Monitor error rates
-- [ ] Check performance metrics
+**איך להוסיף ב-Vercel:**
+1. לכי ל-[Vercel Dashboard](https://vercel.com/dashboard)
+2. בחרי בפרויקט CashBus
+3. Settings → Environment Variables
+4. הוסיפי כל משתנה עם הערך המתאים
+5. וודאי שהמשתנים זמינים ל-Production, Preview, Development
 
 ---
 
-## 🔐 Security Checklist
+## Database Setup (Supabase)
 
-- [x] `.env.local` in `.gitignore`
-- [x] RLS enabled on all tables
-- [x] Anon key used (not service role key)
-- [ ] HTTPS enabled in production
-- [ ] CORS properly configured
-- [ ] Rate limiting considered
+### Step 1: הוספת Admin User
+הריצי את הקובץ `supabase/ADD_ADMIN_SIVAN.sql` ב-Supabase SQL Editor:
 
----
+1. פתחי את [Supabase Dashboard](https://supabase.com/dashboard)
+2. בחרי בפרויקט שלך
+3. לכי ל-SQL Editor
+4. העתיקי והדבקי את התוכן של `supabase/ADD_ADMIN_SIVAN.sql`
+5. לחצי על Run
 
-## 📊 Success Metrics
-
-After deployment, monitor:
-- User registrations
-- Incident reports created
-- GPS capture success rate
-- Authentication success rate
-- Page load times
-- Error rates
+**תוצאה צפויה:** תראי שורה עם המייל `sivan.baruch200@gmail.com` ותפקיד `super_admin`.
 
 ---
 
-**Ready to deploy!** ✅
+## Email Setup (Resend)
+
+### הגדרת Resend:
+1. הירשמי ל-[Resend](https://resend.com)
+2. אמתי את הדומיין `cashbus.co.il` (או השתמשי ב-onboarding domain)
+3. צרי API Key חדש:
+   - לכי ל-API Keys
+   - לחצי Create API Key
+   - תני שם: "CashBus Production"
+   - העתיקי את ה-Key
+4. הוסיפי את ה-Key ל-Vercel Environment Variables: `RESEND_API_KEY`
+
+### בדיקת שליחת מיילים:
+המערכת תשלח מיילים אוטומטית ל:
+- **To:** חברת האוטובוסים (מתוך טבלת `bus_companies`)
+- **BCC:** משרד התחבורה (`Pniotcrm@mot.gov.il`) - **אוטומטי ותמיד!**
+
+---
+
+## Post-Deployment Testing
+
+### 1. בדיקת התחברות Admin
+1. גשי ל-https://cash-bus.vercel.app/auth
+2. התחברי עם המייל: `sivan.baruch200@gmail.com`
+3. לאחר התחברות, גשי ל-https://cash-bus.vercel.app/admin
+4. וודאי שאת רואה את ממשק הניהול
+
+### 2. בדיקת כפתור Logout
+1. וודאי שבדף הלקוח (dashboard) יש כפתור "התנתק" בצד שמאל למעלה
+2. לחצי עליו ווודאי שאת מופנית ל-/auth
+
+### 3. בדיקת שליחת מכתבים (אופציונלי - רק אם יש דיווח ממשי)
+1. גשי לדף Admin → ניהול תביעות
+2. בחרי דיווח
+3. לחצי "יצא מכתב התראה"
+4. לאחר שהמכתב נוצר, לחצי "שלח למייל החברה"
+5. וודאי שהמייל נשלח למייל החברה + BCC למשרד התחבורה
+
+---
+
+## Troubleshooting
+
+### אם לא מצליחה להיכנס ל-Admin:
+- וודאי שהרצת את `ADD_ADMIN_SIVAN.sql` ב-Supabase
+- בדקי שהמייל שלך קיים ב-`auth.users` (התחברת לפחות פעם אחת)
+- בדקי שהטבלה `admin_users` קיימת
+
+### אם שליחת מייל נכשלת:
+- וודאי ש-`RESEND_API_KEY` מוגדר ב-Vercel
+- בדקי שה-API Key תקף ב-Resend Dashboard
+- וודאי שאימתת את הדומיין ב-Resend (או השתמשי ב-onboarding domain)
+
+---
+
+**Status:** Ready for Production 🚀
+**Last Updated:** 2026-01-14
