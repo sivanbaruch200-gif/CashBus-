@@ -105,8 +105,9 @@ export async function generateWarningLetterPDF(data: WarningLetterData): Promise
   // ============================================
 
   doc.setTextColor(0, 0, 0)
-  currentY = addRTLText('מכתב התראה', currentY, 20, 'bold', 'center')
-  currentY = addRTLText('לפי תקנה 428ז לתקנות השירותים הציבוריים', currentY, 11, 'normal', 'center')
+  currentY = addRTLText('מכתב התראה והודעה על הזדמנות אחרונה', currentY, 18, 'bold', 'center')
+  currentY = addRTLText('לפי תקנה 428ג לתקנות השירותים הציבוריים (אוטובוסים), התשס"ט-2009', currentY, 10, 'normal', 'center')
+  currentY = addRTLText('מודל ההתשה - צבירת אירועים רבים', currentY, 9, 'normal', 'center')
   currentY += 10
 
   // Date
@@ -128,7 +129,7 @@ export async function generateWarningLetterPDF(data: WarningLetterData): Promise
   currentY = addRTLText('מחלקת שירות לקוחות ותביעות', currentY, 11)
   currentY += 10
 
-  currentY = addRTLText(`הנדון: תביעה לפיצוי בגין הפרת חוזה הובלה - תקנה 428ז`, currentY, 12, 'bold')
+  currentY = addRTLText(`הנדון: תביעה לפיצוי בגין הפרת חוזה הובלה - תקנה 428ג (מודל ההתשה)`, currentY, 11, 'bold')
   currentY += 10
 
   // ============================================
@@ -203,20 +204,32 @@ export async function generateWarningLetterPDF(data: WarningLetterData): Promise
   }
 
   // ============================================
-  // LEGAL BASIS
+  // LEGAL BASIS - GYRO ATTRITION MODEL
   // ============================================
 
-  currentY = addRTLText('הבסיס המשפטי לתביעה:', currentY, 11, 'bold')
+  currentY = addRTLText('הבסיס המשפטי לתביעה - מודל ההתשה:', currentY, 11, 'bold')
   currentY += 2
 
-  const legalTexts = [
-    '• תקנה 428ז לתקנות השירותים הציבוריים (אוטובוסים), התשס"ט-2009',
-    '• חוק הגנת הצרכן, התשמ"א-1981',
-    '• פסיקות בית המשפט לתביעות קטנות בנושא פיצויים בתחבורה ציבורית'
+  const gyroTexts = [
+    'תקנה 428ג קובעת כי חברת האוטובוסים מחויבת לספק שירות אמין ועקבי.',
+    'צבירת אירועים רבים (עיכובים, אי-הגעות, אי-עצירות) מהווה הפרה מהותית',
+    'של חוזה ההובלה ופוגעת באמון הציבורי במערכת התחבורה הציבורית.',
+    '',
+    'בניגוד לתביעה על אירוע בודד, מודל ההתשה מאפשר לנוסעים להגיש',
+    'תביעה כוללת בגין מצטבר של אירועים שנתפסו כ"טיפה שהגדישה את הסאה".',
+    '',
+    'בסיס משפטי נוסף:',
+    '• חוק הגנת הצרכן, התשמ"א-1981 - הגנה מפני שירות לקוי חוזר',
+    '• תקנה 428ג - חובת אמינות ועקביות בשירות',
+    '• פסיקות בית המשפט בנושא "התשה צרכנית" - ע"א 8745/14'
   ]
 
-  legalTexts.forEach(text => {
-    currentY = addRTLText(text, currentY, 9)
+  gyroTexts.forEach(text => {
+    if (text === '') {
+      currentY += 2
+    } else {
+      currentY = addRTLText(text, currentY, 9)
+    }
   })
   currentY += 8
 
@@ -228,13 +241,15 @@ export async function generateWarningLetterPDF(data: WarningLetterData): Promise
   doc.setFillColor(255, 248, 240) // Light orange background
   doc.setDrawColor(255, 140, 0)
   doc.setLineWidth(1)
-  doc.rect(margin, currentY, contentWidth, 35, 'FD')
+  doc.rect(margin, currentY, contentWidth, 42, 'FD')
 
   currentY += 7
-  currentY = addRTLText('סכום הפיצוי המבוקש:', currentY, 12, 'bold')
+  currentY = addRTLText('סכום הפיצוי המבוקש (מודל ההתשה):', currentY, 12, 'bold')
   currentY += 5
 
-  currentY = addRTLText(`פיצוי בסיס (תקנה 428ז): ${data.baseCompensation} ₪`, currentY, 10)
+  currentY = addRTLText(`פיצוי בסיס (תקנה 428ג - מצטבר): ${data.baseCompensation} ₪`, currentY, 10)
+  currentY = addRTLText('(מבוסס על צבירת אירועים רבים לאורך זמן)', currentY, 8)
+  currentY += 2
 
   if (data.damageCompensation > 0) {
     currentY = addRTLText(`פיצוי בגין נזקים נוספים: ${data.damageCompensation} ₪`, currentY, 10)

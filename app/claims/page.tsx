@@ -2,21 +2,22 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, MapPin, Calendar, FileText, DollarSign, Camera, Bus, AlertCircle } from 'lucide-react'
-import { getUserIncidents, getSession, type Incident } from '@/lib/supabase'
+import { ArrowRight, MapPin, Calendar, FileText, DollarSign, Camera, Bus, AlertCircle, CheckCircle, Clock, Send, Scale } from 'lucide-react'
+import { getUserIncidents, getUserClaims, getSession, type Incident, type Claim } from '@/lib/supabase'
 import { calculateCompensation, getBusCompanyName } from '@/lib/compensation'
 
 export default function MyClaimsPage() {
   const router = useRouter()
   const [incidents, setIncidents] = useState<Incident[]>([])
+  const [claims, setClaims] = useState<Claim[]>([])
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    checkAuthAndLoadIncidents()
+    checkAuthAndLoadData()
   }, [])
 
-  const checkAuthAndLoadIncidents = async () => {
+  const checkAuthAndLoadData = async () => {
     const session = await getSession()
 
     if (!session) {
@@ -24,9 +25,12 @@ export default function MyClaimsPage() {
       return
     }
 
-    // Load all user incidents (no limit)
+    // Load all user incidents and claims
     const userIncidents = await getUserIncidents(100)
+    const userClaims = await getUserClaims()
+
     setIncidents(userIncidents)
+    setClaims(userClaims)
     setLoading(false)
   }
 
@@ -60,6 +64,21 @@ export default function MyClaimsPage() {
       case 'other': return 'נזק אחר'
       default: return type
     }
+  }
+
+  const getStatusBadge = (status: Claim['status']) => {
+    const statusConfig: Record<Claim['status'], { icon: any; label: string; bgColor: string; textColor: string; emoji: string }> = {
+      'draft': { icon: FileText, label: 'טיוטה', bgColor: 'bg-gray-100', textColor: 'text-gray-700', emoji: '📝' },
+      'submitted': { icon: Send, label: 'נשלח מכתב', bgColor: 'bg-orange-100', textColor: 'text-orange-700', emoji: '📨' },
+      'company_review': { icon: Clock, label: 'בבדיקת החברה', bgColor: 'bg-blue-100', textColor: 'text-blue-700', emoji: '⏳' },
+      'approved': { icon: CheckCircle, label: 'מאושר', bgColor: 'bg-purple-100', textColor: 'text-purple-700', emoji: '✅' },
+      'rejected': { icon: AlertCircle, label: 'נדחה', bgColor: 'bg-red-100', textColor: 'text-red-700', emoji: '❌' },
+      'in_court': { icon: Scale, label: 'בתהליך משפטי', bgColor: 'bg-purple-100', textColor: 'text-purple-700', emoji: '⚖️' },
+      'settled': { icon: CheckCircle, label: 'הוסדר', bgColor: 'bg-green-100', textColor: 'text-green-700', emoji: '🤝' },
+      'paid': { icon: CheckCircle, label: 'שולם', bgColor: 'bg-green-100', textColor: 'text-green-700', emoji: '💰' },
+    }
+
+    return statusConfig[status] || statusConfig['draft']
   }
 
   const getIncidentCompensation = (incident: Incident) => {
@@ -117,91 +136,156 @@ export default function MyClaimsPage() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Incidents List */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">
-                {incidents.length} תיקים
-              </h2>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <FileText className="w-4 h-4" />
-                <span>לחץ לפרטים מלאים</span>
-              </div>
-            </div>
+          {/* Left Column - Claims & Incidents List */}
+          <div className="space-y-6">
+            {/* Claims Section */}
+            {claims.length > 0 && (
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 mb-4">
+                  תביעות ({claims.length})
+                </h2>
+                <div className="space-y-3">
+                  {claims.map((claim) => {
+                    const statusBadge = getStatusBadge(claim.status)
+                    const StatusIcon = statusBadge.icon
 
-            {incidents.length === 0 ? (
-              <div className="card text-center py-12">
-                <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">אין תיקים עדיין</h3>
-                <p className="text-gray-600 mb-4">התחל לדווח על תקלות כדי לבנות תיק משפטי</p>
-                <button
-                  onClick={() => router.push('/')}
-                  className="btn-primary"
-                >
-                  חזרה לדף הראשי
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {incidents.map((incident) => {
-                  const compensation = getIncidentCompensation(incident)
-                  const isSelected = selectedIncident?.id === incident.id
-
-                  return (
-                    <div
-                      key={incident.id}
-                      onClick={() => setSelectedIncident(incident)}
-                      className={`card cursor-pointer transition-all hover:shadow-lg ${
-                        isSelected ? 'ring-2 ring-primary-orange bg-orange-50' : ''
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-4 flex-1">
-                          {/* Bus Line Badge */}
-                          <div className="bg-primary-orange text-white w-14 h-14 rounded-lg flex items-center justify-center font-bold text-lg shrink-0">
-                            {incident.bus_line !== 'לא ידוע' ? incident.bus_line : '?'}
-                          </div>
-
-                          {/* Incident Details */}
-                          <div className="flex-1">
-                            <div className="font-bold text-gray-900 mb-1">
-                              {getBusCompanyName(incident.bus_company)}
+                    return (
+                      <div
+                        key={claim.id}
+                        className="card cursor-pointer transition-all hover:shadow-lg"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-4 flex-1">
+                            {/* Company Badge */}
+                            <div className="bg-blue-600 text-white w-14 h-14 rounded-lg flex items-center justify-center font-bold text-lg shrink-0">
+                              <Scale className="w-7 h-7" />
                             </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              {getIncidentTypeLabel(incident.incident_type)}
-                              {incident.damage_type && (
-                                <> • {getDamageTypeLabel(incident.damage_type)}</>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-gray-500">
-                              <Calendar className="w-3 h-3" />
-                              {formatDate(incident.incident_datetime)}
+
+                            {/* Claim Details */}
+                            <div className="flex-1">
+                              <div className="font-bold text-gray-900 mb-1">
+                                {getBusCompanyName(claim.bus_company)}
+                              </div>
+                              <div className="text-sm text-gray-600 mb-2">
+                                {claim.incident_ids.length} אירועים • {claim.claim_type === 'warning_letter' ? 'מכתב התראה' : 'תביעה פורמלית'}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <Calendar className="w-3 h-3" />
+                                {formatDate(claim.created_at)}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* Compensation Amount */}
-                        <div className="text-left">
-                          <div className="text-xs text-gray-600 mb-1">פיצוי משוער</div>
-                          <div className="text-lg font-bold text-green-600">
-                            ₪{compensation.totalCompensation}
+                          {/* Claim Amount and Status */}
+                          <div className="text-left space-y-2">
+                            <div className="text-xs text-gray-600">סכום תביעה</div>
+                            <div className="text-lg font-bold text-green-600">
+                              ₪{claim.claim_amount.toLocaleString()}
+                            </div>
+                            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ${statusBadge.bgColor} ${statusBadge.textColor}`}>
+                              <StatusIcon className="w-4 h-4" />
+                              <span>{statusBadge.emoji} {statusBadge.label}</span>
+                            </div>
                           </div>
-                          <span className={`status-badge ${
-                            incident.verified ? 'status-badge-approved' :
-                            incident.status === 'rejected' ? 'status-badge-rejected' :
-                            'status-badge-pending'
-                          }`}>
-                            {incident.verified ? 'מאומת' :
-                             incident.status === 'rejected' ? 'נדחה' :
-                             'ממתין'}
-                          </span>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             )}
+
+            {/* Individual Incidents Section */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">
+                  אירועים בודדים ({incidents.length})
+                </h2>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <FileText className="w-4 h-4" />
+                  <span>לחץ לפרטים</span>
+                </div>
+              </div>
+
+              {incidents.length === 0 && claims.length === 0 ? (
+                <div className="card text-center py-12">
+                  <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">אין תיקים עדיין</h3>
+                  <p className="text-gray-600 mb-4">התחל לדווח על תקלות כדי לבנות תיק משפטי</p>
+                  <button
+                    onClick={() => router.push('/')}
+                    className="btn-primary"
+                  >
+                    חזרה לדף הראשי
+                  </button>
+                </div>
+              ) : incidents.length === 0 ? (
+                <div className="card text-center py-8 bg-gray-50">
+                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                  <p className="text-gray-600">כל האירועים מקובצים לתביעות</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {incidents.map((incident) => {
+                    const compensation = getIncidentCompensation(incident)
+                    const isSelected = selectedIncident?.id === incident.id
+
+                    return (
+                      <div
+                        key={incident.id}
+                        onClick={() => setSelectedIncident(incident)}
+                        className={`card cursor-pointer transition-all hover:shadow-lg ${
+                          isSelected ? 'ring-2 ring-primary-orange bg-orange-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start gap-4 flex-1">
+                            {/* Bus Line Badge */}
+                            <div className="bg-primary-orange text-white w-14 h-14 rounded-lg flex items-center justify-center font-bold text-lg shrink-0">
+                              {incident.bus_line !== 'לא ידוע' ? incident.bus_line : '?'}
+                            </div>
+
+                            {/* Incident Details */}
+                            <div className="flex-1">
+                              <div className="font-bold text-gray-900 mb-1">
+                                {getBusCompanyName(incident.bus_company)}
+                              </div>
+                              <div className="text-sm text-gray-600 mb-2">
+                                {getIncidentTypeLabel(incident.incident_type)}
+                                {incident.damage_type && (
+                                  <> • {getDamageTypeLabel(incident.damage_type)}</>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <Calendar className="w-3 h-3" />
+                                {formatDate(incident.incident_datetime)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Compensation Amount */}
+                          <div className="text-left">
+                            <div className="text-xs text-gray-600 mb-1">פיצוי משוער</div>
+                            <div className="text-lg font-bold text-green-600">
+                              ₪{compensation.totalCompensation}
+                            </div>
+                            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
+                              incident.verified ? 'bg-blue-100 text-blue-700' :
+                              incident.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {incident.verified ? '🔵 מאומת' :
+                               incident.status === 'rejected' ? '❌ נדחה' :
+                               '⏺️ ממתין'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Column - Incident Details */}
