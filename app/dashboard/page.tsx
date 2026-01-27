@@ -14,6 +14,14 @@ export default function DashboardPage() {
   const [submitting, setSubmitting] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  // DEBUG: Temporary debug state - remove after fixing
+  const [debugInfo, setDebugInfo] = useState<{
+    userId?: string
+    userEmail?: string
+    adminCheckResult?: boolean
+    adminCheckError?: string
+    supabaseUrl?: string
+  }>({})
 
   useEffect(() => {
     checkAuthAndLoadData()
@@ -27,6 +35,14 @@ export default function DashboardPage() {
       return
     }
 
+    // DEBUG: Capture user info
+    setDebugInfo(prev => ({
+      ...prev,
+      userId: session.user?.id,
+      userEmail: session.user?.email,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || 'NOT SET'
+    }))
+
     // Load user profile
     const userProfile = await getCurrentUserProfile()
     setProfile(userProfile)
@@ -37,9 +53,13 @@ export default function DashboardPage() {
       const adminStatus = await isUserAdmin()
       console.log('[Dashboard] Admin status result:', adminStatus)
       setIsAdmin(adminStatus)
+      // DEBUG: Capture result
+      setDebugInfo(prev => ({ ...prev, adminCheckResult: adminStatus }))
     } catch (err) {
       console.error('[Dashboard] Error checking admin:', err)
       setIsAdmin(false)
+      // DEBUG: Capture error
+      setDebugInfo(prev => ({ ...prev, adminCheckError: String(err) }))
     }
 
     setLoading(false)
@@ -191,6 +211,25 @@ export default function DashboardPage() {
           </div>
         </div>
       </header>
+
+      {/* DEBUG PANEL - Remove after fixing admin issue */}
+      <div className="bg-yellow-100 border-b border-yellow-300 px-4 py-3">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-sm font-bold text-yellow-800 mb-2">🔧 DEBUG INFO (הסר אחרי תיקון):</p>
+          <div className="text-xs text-yellow-700 space-y-1">
+            <p>User ID: <code className="bg-yellow-200 px-1 rounded">{debugInfo.userId || 'לא נמצא'}</code></p>
+            <p>Email: <code className="bg-yellow-200 px-1 rounded">{debugInfo.userEmail || 'לא נמצא'}</code></p>
+            <p>Supabase URL: <code className="bg-yellow-200 px-1 rounded">{debugInfo.supabaseUrl || 'NOT SET'}</code></p>
+            <p>Admin Check Result: <code className={`px-1 rounded ${debugInfo.adminCheckResult ? 'bg-green-200' : 'bg-red-200'}`}>
+              {debugInfo.adminCheckResult === undefined ? 'בבדיקה...' : debugInfo.adminCheckResult ? 'TRUE ✓' : 'FALSE ✗'}
+            </code></p>
+            {debugInfo.adminCheckError && (
+              <p className="text-red-600">Error: <code className="bg-red-200 px-1 rounded">{debugInfo.adminCheckError}</code></p>
+            )}
+            <p>isAdmin State: <code className={`px-1 rounded ${isAdmin ? 'bg-green-200' : 'bg-red-200'}`}>{isAdmin ? 'TRUE' : 'FALSE'}</code></p>
+          </div>
+        </div>
+      </div>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
