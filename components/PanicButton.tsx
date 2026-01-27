@@ -2,7 +2,9 @@
 
 import { useState, useRef } from 'react'
 import { AlertCircle, Clock, MapPin, Bus, Camera, Upload, CheckCircle, ArrowRight, Banknote, XCircle, AlertTriangle, Shield, Satellite, Database, Loader2 } from 'lucide-react'
-import { calculateCompensation, type CompensationParams } from '@/lib/compensation'
+import { calculateCompensation, type CompensationParams, type CompensationResult } from '@/lib/compensation'
+import CompensationCalculator from './CompensationCalculator'
+import { reverseGeocode, formatCoordinatesAsFallback } from '@/lib/geocodingService'
 
 interface PanicButtonProps {
   onPress: () => void
@@ -18,6 +20,7 @@ export interface IncidentFormData {
   damageAmount?: number
   damageDescription?: string
   photoFile?: File
+  receiptFile?: File // Receipt image for taxi/expense claims
   userGpsLat: number
   userGpsLng: number
   gpsAccuracy?: number
@@ -25,9 +28,19 @@ export interface IncidentFormData {
   stationId?: string
   stationName?: string
   stationCode?: string
+  stationLat?: number // Station GPS coordinates
+  stationLng?: number
   validationTimestamp?: string
   siriVerified?: boolean
   siriTimestamp?: string
+  // OpenStreetMap address (when GTFS unavailable)
+  osmAddress?: string
+  fullAddress?: string // Complete formatted address for legal documents
+  // Compensation data
+  baseCompensation?: number
+  damageCompensation?: number
+  totalCompensation?: number
+  legalBasis?: string
 }
 
 // GPS Error types
@@ -68,6 +81,22 @@ interface SiriValidation {
   details?: any
 }
 
+// GPS Lock configuration
+const GPS_LOCK_CONFIG = {
+  maxSamples: 5,           // Maximum number of GPS samples to collect
+  lockTimeout: 8000,       // Total timeout for GPS lock (8 seconds)
+  sampleInterval: 1000,    // Interval between samples (1 second)
+  targetAccuracy: 15,      // Stop early if we get accuracy <= 15 meters
+  minSamples: 3,           // Minimum samples before accepting result
+}
+
+interface GpsSample {
+  lat: number
+  lng: number
+  accuracy: number
+  timestamp: string
+}
+
 export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonProps) {
   const [step, setStep] = useState<FormStep>('button')
   const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number; accuracy: number; timestamp: string } | null>(null)
@@ -75,6 +104,12 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
   const [gpsError, setGpsError] = useState<GpsErrorType>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // GPS Lock state
+  const [gpsSamples, setGpsSamples] = useState<GpsSample[]>([])
+  const [gpsLockProgress, setGpsLockProgress] = useState(0)
+  const watchIdRef = useRef<number | null>(null)
+  const lockTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Validation states
   const [validationStatus, setValidationStatus] = useState<ValidationStatus>('idle')
@@ -105,13 +140,74 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     }
   }
 
-  // Step 1: Panic button press - Get GPS location
+  // Clean up GPS watchers and timeouts
+  const cleanupGpsLock = () => {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+    }
+    if (lockTimeoutRef.current) {
+      clearTimeout(lockTimeoutRef.current)
+      lockTimeoutRef.current = null
+    }
+  }
+
+  // Select the best GPS sample (lowest accuracy = most precise)
+  const selectBestSample = (samples: GpsSample[]): GpsSample | null => {
+    if (samples.length === 0) return null
+    return samples.reduce((best, current) =>
+      current.accuracy < best.accuracy ? current : best
+    )
+  }
+
+  // Finalize GPS lock with best sample
+  const finalizeGpsLock = (samples: GpsSample[]) => {
+    cleanupGpsLock()
+
+    const bestSample = selectBestSample(samples)
+    if (!bestSample) {
+      setGpsError('position_unavailable')
+      setIsLocating(false)
+      return
+    }
+
+    console.log(`[GPS Lock] Finalized with ${samples.length} samples. Best accuracy: ${bestSample.accuracy}m`)
+    console.log('[GPS Lock] All samples:', samples.map(s => `${s.accuracy.toFixed(1)}m`).join(', '))
+
+    setGpsLocation({
+      lat: bestSample.lat,
+      lng: bestSample.lng,
+      accuracy: bestSample.accuracy,
+      timestamp: bestSample.timestamp
+    })
+
+    setFormData(prev => ({
+      ...prev,
+      userGpsLat: bestSample.lat,
+      userGpsLng: bestSample.lng,
+      gpsAccuracy: bestSample.accuracy,
+    }))
+
+    setIsLocating(false)
+    setGpsError(null)
+    setGpsLockProgress(100)
+
+    // After GPS acquired, move to station validation
+    setTimeout(() => {
+      setStep('station-validation')
+      validateLocation(bestSample.lat, bestSample.lng, bestSample.accuracy, bestSample.timestamp)
+    }, 500)
+  }
+
+  // Step 1: Panic button press - Start GPS Lock with multiple samples
   const handlePanicPress = async () => {
     setIsLocating(true)
     setGpsError(null)
     setValidationError(null)
     setStationValidation(null)
     setSiriValidation(null)
+    setGpsSamples([])
+    setGpsLockProgress(0)
     setStep('gps-verify')
     onPress()
 
@@ -121,36 +217,62 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       return
     }
 
-    navigator.geolocation.getCurrentPosition(
+    // Collect GPS samples array locally (state updates are async)
+    let collectedSamples: GpsSample[] = []
+
+    // Set overall timeout for GPS lock
+    lockTimeoutRef.current = setTimeout(() => {
+      console.log(`[GPS Lock] Timeout reached. Collected ${collectedSamples.length} samples.`)
+
+      if (collectedSamples.length >= GPS_LOCK_CONFIG.minSamples) {
+        finalizeGpsLock(collectedSamples)
+      } else if (collectedSamples.length > 0) {
+        // If we have at least 1 sample, use it
+        console.log('[GPS Lock] Using partial samples due to timeout')
+        finalizeGpsLock(collectedSamples)
+      } else {
+        cleanupGpsLock()
+        setGpsError('timeout')
+        setIsLocating(false)
+      }
+    }, GPS_LOCK_CONFIG.lockTimeout)
+
+    // Start watching position for multiple samples
+    watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude, accuracy } = position.coords
         const timestamp = new Date().toISOString()
 
-        setGpsLocation({
+        const newSample: GpsSample = {
           lat: latitude,
           lng: longitude,
-          accuracy: accuracy,
-          timestamp: timestamp
-        })
+          accuracy,
+          timestamp
+        }
 
-        setFormData(prev => ({
-          ...prev,
-          userGpsLat: latitude,
-          userGpsLng: longitude,
-          gpsAccuracy: accuracy,
-        }))
+        collectedSamples = [...collectedSamples, newSample]
+        setGpsSamples(collectedSamples)
+        setGpsLockProgress(Math.round((collectedSamples.length / GPS_LOCK_CONFIG.maxSamples) * 100))
 
-        setIsLocating(false)
-        setGpsError(null)
+        console.log(`[GPS Lock] Sample ${collectedSamples.length}: accuracy=${accuracy.toFixed(1)}m`)
 
-        // After GPS acquired, move to station validation
-        setTimeout(() => {
-          setStep('station-validation')
-          validateLocation(latitude, longitude, accuracy, timestamp)
-        }, 1000)
+        // Check if we achieved target accuracy with minimum samples
+        if (accuracy <= GPS_LOCK_CONFIG.targetAccuracy && collectedSamples.length >= GPS_LOCK_CONFIG.minSamples) {
+          console.log(`[GPS Lock] Target accuracy achieved (${accuracy}m <= ${GPS_LOCK_CONFIG.targetAccuracy}m)`)
+          finalizeGpsLock(collectedSamples)
+          return
+        }
+
+        // Check if we have collected maximum samples
+        if (collectedSamples.length >= GPS_LOCK_CONFIG.maxSamples) {
+          console.log(`[GPS Lock] Maximum samples reached (${GPS_LOCK_CONFIG.maxSamples})`)
+          finalizeGpsLock(collectedSamples)
+          return
+        }
       },
       (error) => {
-        console.error('GPS error:', error.code, error.message)
+        console.error('[GPS Lock] Error:', error.code, error.message)
+        cleanupGpsLock()
         setIsLocating(false)
 
         switch (error.code) {
@@ -169,7 +291,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
+        timeout: GPS_LOCK_CONFIG.lockTimeout,
         maximumAge: 0,
       }
     )
@@ -188,18 +310,42 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
       const result = await response.json()
 
-      if (!result.success) {
-        // API error or GTFS data not loaded
-        if (result.errorCode === 'GTFS_EMPTY') {
-          setValidationError('טבלת התחנות ריקה. יש להריץ את סקריפט טעינת הנתונים.')
-          setValidationStatus('error')
-          return
-        }
-        setValidationError(result.error || 'שגיאה בבדיקת המיקום')
-        setValidationStatus('error')
+      // GTFS validation failed - fall back to OpenStreetMap
+      if (!result.success || !result.validated) {
+        console.warn('GTFS validation failed, using OpenStreetMap fallback')
+
+        // Get address from OpenStreetMap
+        const geocodeResult = await reverseGeocode(lat, lng)
+        // Use fullAddress for legal docs, fallback to address for display
+        const displayAddress = geocodeResult.success && geocodeResult.address
+          ? geocodeResult.address
+          : formatCoordinatesAsFallback(lat, lng)
+        const legalAddress = geocodeResult.success && geocodeResult.fullAddress
+          ? geocodeResult.fullAddress
+          : displayAddress
+
+        // Create pseudo-station validation with OSM address
+        setStationValidation({
+          validated: true, // Mark as validated via OSM
+          station: null, // No GTFS station
+          message: `מיקום אומת: ${displayAddress}`,
+          timestamp: new Date().toISOString(),
+          dataSource: 'OpenStreetMap'
+        })
+
+        // Update form data with OSM addresses (both display and legal)
+        setFormData(prev => ({
+          ...prev,
+          osmAddress: displayAddress,
+          fullAddress: legalAddress,
+          validationTimestamp: new Date().toISOString()
+        }))
+
+        setValidationStatus('success')
         return
       }
 
+      // GTFS validation succeeded
       setStationValidation({
         validated: result.validated,
         station: result.station,
@@ -208,19 +354,14 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         dataSource: result.dataSource
       })
 
-      if (!result.validated) {
-        // No station nearby - cannot proceed
-        setValidationStatus('error')
-        setValidationError(result.message)
-        return
-      }
-
       // Station found - update form data
       setFormData(prev => ({
         ...prev,
         stationId: result.station.stopId,
         stationName: result.station.name,
         stationCode: result.station.stopCode,
+        stationLat: result.station.lat,
+        stationLng: result.station.lng,
         validationTimestamp: result.timestamp
       }))
 
@@ -228,8 +369,38 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
     } catch (error) {
       console.error('Location validation error:', error)
-      setValidationError('שגיאה בתקשורת עם השרת')
-      setValidationStatus('error')
+
+      // Network error - fall back to OpenStreetMap
+      try {
+        const geocodeResult = await reverseGeocode(lat, lng)
+        const displayAddress = geocodeResult.success && geocodeResult.address
+          ? geocodeResult.address
+          : formatCoordinatesAsFallback(lat, lng)
+        const legalAddress = geocodeResult.success && geocodeResult.fullAddress
+          ? geocodeResult.fullAddress
+          : displayAddress
+
+        setStationValidation({
+          validated: true,
+          station: null,
+          message: `מיקום אומת: ${displayAddress}`,
+          timestamp: new Date().toISOString(),
+          dataSource: 'OpenStreetMap (Fallback)'
+        })
+
+        setFormData(prev => ({
+          ...prev,
+          osmAddress: displayAddress,
+          fullAddress: legalAddress,
+          validationTimestamp: new Date().toISOString()
+        }))
+
+        setValidationStatus('success')
+      } catch (osmError) {
+        console.error('OSM fallback also failed:', osmError)
+        setValidationError('שגיאה באימות המיקום. נסה שוב.')
+        setValidationStatus('error')
+      }
     }
   }
 
@@ -295,12 +466,16 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
   // Retry GPS acquisition
   const handleRetryGps = () => {
+    cleanupGpsLock()
     setGpsError(null)
+    setGpsSamples([])
+    setGpsLockProgress(0)
     handlePanicPress()
   }
 
   // Cancel and go back to button
   const handleGpsCancel = () => {
+    cleanupGpsLock()
     setStep('button')
     setGpsError(null)
     setIsLocating(false)
@@ -308,6 +483,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     setStationValidation(null)
     setSiriValidation(null)
     setValidationError(null)
+    setGpsSamples([])
+    setGpsLockProgress(0)
   }
 
   // Proceed to form after validation
@@ -360,10 +537,25 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
   // Submit form
   const handleSubmit = () => {
-    if (!formData.busLine || !formData.busCompany || !gpsLocation || !stationValidation?.validated) {
+    if (!formData.busLine || !formData.busCompany || !gpsLocation) {
       alert('נא למלא את כל השדות הנדרשים')
       return
     }
+
+    // Require either GTFS station or OSM address
+    if (!stationValidation?.validated || (!stationValidation.station && !formData.osmAddress)) {
+      alert('נא לאמת את המיקום לפני שליחת הדיווח')
+      return
+    }
+
+    // Calculate final compensation
+    const compensationResult = calculateCompensation({
+      incidentType: formData.incidentType!,
+      delayMinutes: formData.delayMinutes,
+      damageType: formData.damageType,
+      damageAmount: formData.damageAmount,
+      busCompany: formData.busCompany!,
+    })
 
     const completeData: IncidentFormData = {
       busLine: formData.busLine!,
@@ -374,15 +566,26 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       damageAmount: formData.damageAmount,
       damageDescription: formData.damageDescription,
       photoFile: formData.photoFile,
+      receiptFile: formData.receiptFile,
       userGpsLat: gpsLocation.lat,
       userGpsLng: gpsLocation.lng,
       gpsAccuracy: gpsLocation.accuracy,
       stationId: formData.stationId,
       stationName: formData.stationName,
       stationCode: formData.stationCode,
+      stationLat: formData.stationLat,
+      stationLng: formData.stationLng,
       validationTimestamp: formData.validationTimestamp,
       siriVerified: formData.siriVerified,
       siriTimestamp: formData.siriTimestamp,
+      // OSM address for fallback location
+      osmAddress: formData.osmAddress,
+      fullAddress: formData.fullAddress, // Complete address for legal documents
+      // Add compensation data
+      baseCompensation: compensationResult.baseCompensation,
+      damageCompensation: compensationResult.damageCompensation,
+      totalCompensation: compensationResult.totalCompensation,
+      legalBasis: compensationResult.legalBasis,
     }
 
     onIncidentSubmit?.(completeData)
@@ -402,6 +605,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
   // Reset and go back
   const handleCancel = () => {
+    cleanupGpsLock()
     setStep('button')
     setFormData({ incidentType: 'no_arrival' })
     setGpsLocation(null)
@@ -412,6 +616,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     setStationValidation(null)
     setSiriValidation(null)
     setValidationError(null)
+    setGpsSamples([])
+    setGpsLockProgress(0)
   }
 
   // Format timestamp for display
@@ -503,41 +709,114 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     }
 
     return (
-      <div className="flex flex-col items-center py-8">
-        <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 ${gpsLocation ? 'bg-green-100' : 'bg-primary-orange bg-opacity-10'}`}>
+      <div className="flex flex-col items-center py-8 max-w-sm mx-auto">
+        {/* GPS Lock Progress Circle */}
+        <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 relative ${gpsLocation ? 'bg-green-100' : 'bg-primary-orange bg-opacity-10'}`}>
           {gpsLocation ? (
             <CheckCircle className="w-16 h-16 text-green-600" />
           ) : (
-            <Satellite className="w-16 h-16 text-primary-orange animate-pulse" />
+            <>
+              <Satellite className="w-16 h-16 text-primary-orange animate-pulse" />
+              {/* Progress ring */}
+              <svg className="absolute inset-0 w-full h-full -rotate-90">
+                <circle
+                  cx="64"
+                  cy="64"
+                  r="58"
+                  fill="none"
+                  stroke="#e5e7eb"
+                  strokeWidth="4"
+                />
+                <circle
+                  cx="64"
+                  cy="64"
+                  r="58"
+                  fill="none"
+                  stroke="#FF8C00"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 58}`}
+                  strokeDashoffset={`${2 * Math.PI * 58 * (1 - gpsLockProgress / 100)}`}
+                  className="transition-all duration-300"
+                />
+              </svg>
+            </>
           )}
         </div>
 
         <h3 className="text-xl font-bold text-gray-900 mb-2">
-          {isLocating ? 'מאתר את המיקום שלך...' : 'מיקום נקלט!'}
+          {isLocating ? 'נועל GPS לדיוק מקסימלי...' : 'מיקום נקלט!'}
         </h3>
 
+        {/* GPS Lock Progress Info */}
+        {isLocating && gpsSamples.length > 0 && (
+          <div className="w-full space-y-3 mb-4">
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-blue-900">איסוף דגימות GPS</span>
+                <span className="text-sm font-mono text-blue-700">{gpsSamples.length}/{GPS_LOCK_CONFIG.maxSamples}</span>
+              </div>
+              <div className="w-full bg-blue-200 rounded-full h-2 mb-3">
+                <div
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${gpsLockProgress}%` }}
+                />
+              </div>
+              {/* Sample accuracy list */}
+              <div className="flex flex-wrap gap-1">
+                {gpsSamples.map((sample, i) => (
+                  <span
+                    key={i}
+                    className={`text-xs px-2 py-0.5 rounded-full font-mono ${
+                      sample.accuracy <= 10 ? 'bg-green-100 text-green-700' :
+                      sample.accuracy <= 30 ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {Math.round(sample.accuracy)}m
+                  </span>
+                ))}
+              </div>
+              {gpsSamples.length > 0 && (
+                <p className="text-xs text-blue-700 mt-2">
+                  הדגימה הטובה ביותר עד כה: <span className="font-bold">{Math.round(Math.min(...gpsSamples.map(s => s.accuracy)))} מטר</span>
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 text-center">
+              ממתין לדיוק של {GPS_LOCK_CONFIG.targetAccuracy} מטר או פחות...
+            </p>
+          </div>
+        )}
+
         {gpsLocation && (
-          <div className="space-y-3 mb-4 w-full max-w-xs">
+          <div className="space-y-3 mb-4 w-full">
             {/* GPS Data Display - Transparent */}
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
               <div className="flex items-center gap-2 mb-3">
-                <Satellite className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-gray-700">נתוני GPS גולמיים</span>
+                <Satellite className="w-4 h-4 text-green-600" />
+                <span className="text-sm font-medium text-green-800">נעילת GPS הושלמה!</span>
+                <CheckCircle className="w-4 h-4 text-green-500 mr-auto" />
               </div>
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">דיוק (Accuracy):</span>
+                  <span className="text-green-700">דיוק סופי:</span>
                   <span className={`font-mono font-bold ${gpsLocation.accuracy <= 10 ? 'text-green-600' : gpsLocation.accuracy <= 30 ? 'text-amber-600' : 'text-red-600'}`}>
                     {Math.round(gpsLocation.accuracy)} מטר
+                    {gpsLocation.accuracy <= 10 ? ' (מעולה)' : gpsLocation.accuracy <= 30 ? ' (טוב)' : ' (סביר)'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">חותמת זמן:</span>
-                  <span className="font-mono text-gray-800">{formatTimestamp(gpsLocation.timestamp)}</span>
+                  <span className="text-green-700">דגימות שנאספו:</span>
+                  <span className="font-mono text-green-800">{gpsSamples.length}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">קואורדינטות:</span>
-                  <span className="font-mono text-gray-800 text-[10px]">
+                  <span className="text-green-700">חותמת זמן:</span>
+                  <span className="font-mono text-green-800">{formatTimestamp(gpsLocation.timestamp)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-green-700">קואורדינטות:</span>
+                  <span className="font-mono text-green-800 text-[10px]">
                     {gpsLocation.lat.toFixed(6)}, {gpsLocation.lng.toFixed(6)}
                   </span>
                 </div>
@@ -550,7 +829,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           </div>
         )}
 
-        {isLocating && (
+        {isLocating && gpsSamples.length === 0 && (
           <div className="mt-4 flex items-center gap-2">
             <div className="w-2 h-2 bg-primary-orange rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
             <div className="w-2 h-2 bg-primary-orange rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -609,16 +888,32 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
             <p className="text-sm text-yellow-800">מאמת מיקום מול מאגר התחנות של משרד התחבורה...</p>
           )}
 
-          {stationValidation?.validated && stationValidation.station && (
+          {stationValidation?.validated && (
             <div className="space-y-2">
-              <p className="text-green-800 font-medium">
-                מיקום אומת: תחנת {stationValidation.station.name}
-              </p>
-              <div className="text-xs text-green-700 space-y-1">
-                <div>קוד תחנה: <span className="font-mono">{stationValidation.station.stopCode}</span></div>
-                <div>מרחק: <span className="font-mono">{stationValidation.station.distance}m</span></div>
-                <div>מקור: <span className="font-mono">GTFS - משרד התחבורה</span></div>
-              </div>
+              {stationValidation.station ? (
+                <>
+                  <p className="text-green-800 font-medium">
+                    מיקום אומת: תחנת {stationValidation.station.name}
+                  </p>
+                  <div className="text-xs text-green-700 space-y-1">
+                    <div>קוד תחנה: <span className="font-mono">{stationValidation.station.stopCode}</span></div>
+                    <div>מרחק: <span className="font-mono">{stationValidation.station.distance}m</span></div>
+                    <div>מקור: <span className="font-mono">GTFS - משרד התחבורה</span></div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-green-800 font-medium">
+                    {stationValidation.message}
+                  </p>
+                  <div className="text-xs text-green-700 space-y-1">
+                    <div>מקור: <span className="font-mono">{stationValidation.dataSource}</span></div>
+                    <div className="text-amber-600 mt-1">
+                      ℹ️ נתוני GTFS לא זמינים - משתמשים במיקום מילולי
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -689,12 +984,21 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         </div>
 
         {/* Station Badge */}
-        {stationValidation?.station && (
+        {stationValidation?.validated && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6">
             <div className="flex items-center gap-2">
               <MapPin className="w-5 h-5 text-green-600" />
-              <span className="font-medium text-green-800">תחנת {stationValidation.station.name}</span>
-              <span className="text-xs text-green-600 mr-auto">({stationValidation.station.distance}m)</span>
+              {stationValidation.station ? (
+                <>
+                  <span className="font-medium text-green-800">תחנת {stationValidation.station.name}</span>
+                  <span className="text-xs text-green-600 mr-auto">({stationValidation.station.distance}m)</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-green-800">{formData.osmAddress || 'מיקום מאומת'}</span>
+                  <span className="text-xs text-amber-600 mr-auto">(OSM)</span>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -836,6 +1140,56 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                 min="0"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent text-right"
               />
+            </div>
+          )}
+
+          {/* Receipt Upload - Show when damage type is selected (especially for taxi_cost) */}
+          {formData.damageType && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                העלאת קבלה {formData.damageType === 'taxi_cost' ? '(חובה למונית)' : '(אופציונלי)'}
+              </label>
+              <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
+                formData.receiptFile
+                  ? 'border-green-300 bg-green-50'
+                  : 'border-gray-300 hover:border-primary-orange'
+              }`}>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      setFormData(prev => ({ ...prev, receiptFile: file }))
+                    }
+                  }}
+                  className="hidden"
+                  id="receipt-upload"
+                />
+                {formData.receiptFile ? (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      <span className="text-sm text-green-700 font-medium truncate max-w-[200px]">
+                        {formData.receiptFile.name}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, receiptFile: undefined }))}
+                      className="text-sm text-red-600 hover:text-red-700"
+                    >
+                      הסר
+                    </button>
+                  </div>
+                ) : (
+                  <label htmlFor="receipt-upload" className="cursor-pointer block">
+                    <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                    <p className="text-sm text-gray-600">העלה קבלה (תמונה או PDF)</p>
+                    <p className="text-xs text-gray-400 mt-1">עד 10MB</p>
+                  </label>
+                )}
+              </div>
             </div>
           )}
 

@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSession, getUserIncidents, getUserClaims, getCurrentUserProfile, createIncidentWithPhoto, signOut, type Profile } from '@/lib/supabase'
+import { getSession, getUserIncidents, getUserClaims, getCurrentUserProfile, createIncidentWithPhoto, signOut, isUserAdmin, type Profile } from '@/lib/supabase'
 import PanicButton, { type IncidentFormData } from '@/components/PanicButton'
-import { ArrowRight, FileText, TrendingUp, AlertCircle, PiggyBank, Clock, Award, LogOut } from 'lucide-react'
+import { ArrowRight, FileText, TrendingUp, AlertCircle, PiggyBank, Clock, Award, LogOut, Shield, Settings } from 'lucide-react'
 import { calculateCompensation } from '@/lib/compensation'
 
 export default function DashboardPage() {
@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     checkAuthAndLoadData()
@@ -29,6 +30,18 @@ export default function DashboardPage() {
     // Load user profile
     const userProfile = await getCurrentUserProfile()
     setProfile(userProfile)
+
+    // Check admin status - with detailed logging
+    console.log('[Dashboard] About to check admin status...')
+    try {
+      const adminStatus = await isUserAdmin()
+      console.log('[Dashboard] Admin status result:', adminStatus)
+      setIsAdmin(adminStatus)
+    } catch (err) {
+      console.error('[Dashboard] Error checking admin:', err)
+      setIsAdmin(false)
+    }
+
     setLoading(false)
   }
 
@@ -42,28 +55,55 @@ export default function DashboardPage() {
         return
       }
 
-      // Create incident
+      // Create incident with compensation data and receipt
+      // Ensure GPS coordinates are valid numbers (not undefined/NaN)
+      // Use user GPS as fallback when station GPS is not available (OSM fallback)
+      const stationLat = (typeof data.stationLat === 'number' && !isNaN(data.stationLat))
+        ? data.stationLat
+        : data.userGpsLat
+      const stationLng = (typeof data.stationLng === 'number' && !isNaN(data.stationLng))
+        ? data.stationLng
+        : data.userGpsLng
+
+      // Prepare incident data - convert undefined to null for database
+      const incidentData = {
+        bus_line: data.busLine,
+        bus_company: data.busCompany,
+        // Use GTFS station name if available, otherwise OSM address
+        station_name: data.stationName || data.osmAddress || 'לא ידוע',
+        // Use station coordinates from GTFS validation, fallback to user GPS for OSM locations
+        // IMPORTANT: Use null instead of undefined for nullable fields
+        station_gps_lat: stationLat ?? null,
+        station_gps_lng: stationLng ?? null,
+        user_gps_lat: data.userGpsLat,
+        user_gps_lng: data.userGpsLng,
+        user_gps_accuracy: data.gpsAccuracy ?? null,
+        incident_type: data.incidentType,
+        incident_datetime: new Date().toISOString(),
+        delay_minutes: data.delayMinutes ?? null,
+        damage_type: data.damageType ?? null,
+        damage_amount: data.damageAmount ?? null,
+        damage_description: data.damageDescription ?? null,
+        // OSM address for legal documents (when GTFS unavailable)
+        osm_address: data.fullAddress || data.osmAddress || null,
+        // Compensation data
+        base_compensation: data.baseCompensation ?? null,
+        damage_compensation: data.damageCompensation ?? null,
+        total_compensation: data.totalCompensation ?? null,
+        legal_basis: data.legalBasis ?? null,
+        photo_urls: [], // Will be updated if photo exists
+        receipt_urls: [], // Will be updated if receipt exists
+      }
+
+      console.log('Submitting incident data:', incidentData)
+
       const incident = await createIncidentWithPhoto(
-        {
-          bus_line: data.busLine,
-          bus_company: data.busCompany,
-          station_name: data.stationName || 'לא ידוע',
-          station_gps_lat: data.stationId ? parseFloat(data.stationId.split(',')[0]) : undefined,
-          station_gps_lng: data.stationId ? parseFloat(data.stationId.split(',')[1]) : undefined,
-          user_gps_lat: data.userGpsLat,
-          user_gps_lng: data.userGpsLng,
-          user_gps_accuracy: data.gpsAccuracy,
-          incident_type: data.incidentType,
-          incident_datetime: new Date().toISOString(),
-          damage_type: data.damageType,
-          damage_amount: data.damageAmount,
-          damage_description: data.damageDescription,
-          photo_urls: [], // Will be updated if photo exists
-        },
-        data.photoFile
+        incidentData,
+        data.photoFile,
+        data.receiptFile
       )
 
-      console.log('Incident created:', incident)
+      console.log('Incident created with compensation:', incident)
 
       setShowSuccess(true)
       setTimeout(() => {
@@ -89,6 +129,9 @@ export default function DashboardPage() {
     router.push('/auth')
   }
 
+  // Debug: Log isAdmin state before render
+  console.log('[Dashboard RENDER] isAdmin state:', isAdmin, '| loading:', loading)
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
@@ -107,10 +150,28 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">שלום, {profile?.full_name || 'משתמש'}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-gray-900">שלום, {profile?.full_name || 'משתמש'}</h1>
+                {isAdmin && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">
+                    <Shield className="w-3.5 h-3.5" />
+                    מנהל
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-gray-600">דווח על תקלות בזמן אמת וצבור פיצויים</p>
             </div>
             <div className="flex items-center gap-3">
+              {/* Admin Panel Button */}
+              {isAdmin && (
+                <button
+                  onClick={() => router.push('/admin')}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors"
+                >
+                  <Settings className="w-5 h-5" />
+                  <span className="text-sm font-medium">ממשק ניהול</span>
+                </button>
+              )}
               <button
                 onClick={() => router.push('/claims')}
                 className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
@@ -199,22 +260,22 @@ export default function DashboardPage() {
               <div className="text-center mb-6">
                 <PiggyBank className="w-16 h-16 mx-auto mb-4 opacity-90" strokeWidth={1.5} />
                 <h3 className="text-lg font-bold mb-2">קופת החיסכון שלך</h3>
-                <p className="text-sm opacity-90">סכום פוטנציאלי לפיצוי</p>
+                <p className="text-sm opacity-90">פיצויים שהתקבלו</p>
               </div>
 
-              {/* Total Potential */}
+              {/* Total Received - Now the main amount */}
               <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-lg p-6 mb-4">
-                <p className="text-sm opacity-90 mb-2 text-center">סה"כ פוטנציאל</p>
+                <p className="text-sm opacity-90 mb-2 text-center">סה"כ התקבל</p>
                 <p className="text-4xl font-bold text-center">
-                  ₪{(profile?.total_potential || 0).toLocaleString()}
+                  ₪{(profile?.total_received || 0).toLocaleString()}
                 </p>
               </div>
 
-              {/* Already Received */}
+              {/* Potential - Now the smaller amount */}
               <div className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-4 mb-6">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm opacity-90">כבר התקבל</span>
-                  <span className="font-bold">₪{(profile?.total_received || 0).toLocaleString()}</span>
+                  <span className="text-sm opacity-90">פוטנציאל נוסף</span>
+                  <span className="font-bold">₪{(profile?.total_potential || 0).toLocaleString()}</span>
                 </div>
               </div>
 

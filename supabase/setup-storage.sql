@@ -77,11 +77,43 @@ ON CONFLICT DO NOTHING;
 --     EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid())
 
 -- =====================================================
+-- RECEIPTS BUCKET SETUP (for taxi receipts and expense claims)
+-- =====================================================
+
+-- MANUAL SETUP INSTRUCTIONS for 'receipts' bucket:
+-- 1. Go to Storage section in Supabase Dashboard
+-- 2. Click "Create Bucket"
+-- 3. Name: "receipts"
+-- 4. Public bucket: YES (checked)
+-- 5. File size limit: 10 MB
+-- 6. Allowed MIME types: image/*, application/pdf
+-- 7. Click "Create bucket"
+
+-- 8. Click on the "receipts" bucket
+-- 9. Go to "Policies" tab
+-- 10. Add these policies:
+
+-- Policy 1: "Allow authenticated uploads"
+--   Operation: INSERT
+--   Target roles: authenticated
+--   Policy definition: true
+
+-- Policy 2: "Allow public read"
+--   Operation: SELECT
+--   Target roles: public
+--   Policy definition: true
+
+-- Policy 3: "Allow users to delete own receipts"
+--   Operation: DELETE
+--   Target roles: authenticated
+--   Policy definition: (auth.uid()::text = (storage.foldername(name))[1])
+
+-- =====================================================
 -- Verification Query
 -- =====================================================
 
--- Check if bucket exists
-SELECT * FROM storage.buckets WHERE name = 'documents';
+-- Check if buckets exist
+SELECT * FROM storage.buckets WHERE name IN ('documents', 'receipts', 'incident-photos');
 
 -- Check policies
-SELECT * FROM storage.policies WHERE bucket_id = 'documents';
+SELECT * FROM storage.policies WHERE bucket_id IN ('documents', 'receipts', 'incident-photos');

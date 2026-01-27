@@ -237,7 +237,7 @@ export async function verifyAndUpdateIncident(
     id: incident.id,
     user_gps_lat: incident.user_gps_lat,
     user_gps_lng: incident.user_gps_lng,
-    user_gps_accuracy: incident.user_gps_accuracy,
+    user_gps_accuracy: incident.user_gps_accuracy ?? undefined,
     bus_line: incident.bus_line,
     bus_company: incident.bus_company,
     incident_type: incident.incident_type,

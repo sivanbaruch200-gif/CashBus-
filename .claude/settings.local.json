@@ -6,7 +6,10 @@
       "Bash(npm install:*)",
       "Bash(wc:*)",
       "Bash(dir:*)",
-      "Bash(git --version:*)"
+      "Bash(git --version:*)",
+      "Bash(git add:*)",
+      "Bash(GIT_MMAP_LIMIT=0 git add:*)",
+      "Bash(git hash-object:*)"
     ]
   }
 }

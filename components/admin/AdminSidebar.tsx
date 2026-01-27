@@ -11,6 +11,8 @@ import {
   LogOut,
   Bus,
   ChevronLeft,
+  Mail,
+  FileEdit,
 } from 'lucide-react'
 
 interface AdminSidebarProps {
@@ -38,6 +40,18 @@ export default function AdminSidebar({ currentPath, onClose }: AdminSidebarProps
       href: '/admin/claims',
       icon: FileText,
       description: 'צפייה וניהול תביעות לקוחות',
+    },
+    {
+      name: 'תור מכתבים',
+      href: '/admin/letter-queue',
+      icon: Mail,
+      description: 'שליחת מכתבים ומעקב תזכורות',
+    },
+    {
+      name: 'תבניות מכתבים',
+      href: '/admin/templates',
+      icon: FileEdit,
+      description: 'עריכת תבניות ל-3 שלבי התראה',
     },
     {
       name: 'אוטומציה וזרימות',

@@ -2,37 +2,151 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, MapPin, Calendar, FileText, DollarSign, Camera, Bus, AlertCircle, CheckCircle, Clock, Send, Scale } from 'lucide-react'
-import { getUserIncidents, getUserClaims, getSession, type Incident, type Claim } from '@/lib/supabase'
+import { ArrowRight, MapPin, Calendar, FileText, DollarSign, Camera, Bus, AlertCircle, CheckCircle, Clock, Send, Scale, Shield, User, Filter, Building2, Banknote, TrendingUp } from 'lucide-react'
+import { supabase, getUserIncidents, getUserClaims, isUserAdmin, getAllIncidentsForAdmin, getAdminStatistics, type Incident, type Claim } from '@/lib/supabase'
 import { calculateCompensation, getBusCompanyName } from '@/lib/compensation'
+
+// List of bus companies for filtering
+const BUS_COMPANIES = [
+  { value: '', label: 'כל החברות' },
+  { value: 'egged', label: 'אגד' },
+  { value: 'dan', label: 'דן' },
+  { value: 'kavim', label: 'קווים' },
+  { value: 'metropoline', label: 'מטרופולין' },
+  { value: 'nateev_express', label: 'נתיב אקספרס' },
+  { value: 'superbus', label: 'סופרבוס' },
+  { value: 'egged_taavura', label: 'אגד תעבורה' },
+  { value: 'afikim', label: 'אפיקים' },
+  { value: 'other', label: 'אחר' },
+]
+
+// Damage types for filtering
+const DAMAGE_TYPES = [
+  { value: '', label: 'כל סוגי הנזק' },
+  { value: 'taxi_cost', label: 'הוצאות מונית' },
+  { value: 'lost_workday', label: 'אובדן יום עבודה' },
+  { value: 'missed_exam', label: 'החמצת בחינה' },
+  { value: 'medical_appointment', label: 'החמצת תור לרופא' },
+  { value: 'other', label: 'נזק אחר' },
+  { value: 'none', label: 'ללא נזק נוסף' },
+]
+
+// Status filter options
+const STATUS_FILTERS = [
+  { value: '', label: 'כל הסטטוסים' },
+  { value: 'submitted', label: 'ממתין לאימות' },
+  { value: 'verified', label: 'מאומת' },
+  { value: 'rejected', label: 'נדחה' },
+  { value: 'claimed', label: 'נתבע/שולם' },
+]
+
+// Extended Incident type with profile data for admin view
+interface IncidentWithProfile extends Incident {
+  profiles?: {
+    full_name: string
+    phone: string
+    email?: string
+  }
+}
 
 export default function MyClaimsPage() {
   const router = useRouter()
-  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [incidents, setIncidents] = useState<IncidentWithProfile[]>([])
   const [claims, setClaims] = useState<Claim[]>([])
-  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null)
+  const [selectedIncident, setSelectedIncident] = useState<IncidentWithProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  // Admin filter states
+  const [filterCompany, setFilterCompany] = useState('')
+  const [filterDamageType, setFilterDamageType] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+
+  // Admin statistics
+  const [adminStats, setAdminStats] = useState<{
+    totalUsers: number
+    totalIncidents: number
+    totalPotentialCompensation: number
+    totalPaidCompensation: number
+    totalCommission: number
+  } | null>(null)
 
   useEffect(() => {
-    checkAuthAndLoadData()
-  }, [])
+    // Use onAuthStateChange to properly wait for auth initialization
+    // This fixes the race condition where isUserAdmin runs before session is loaded
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[claims] Auth state changed:', event, session?.user?.email)
 
-  const checkAuthAndLoadData = async () => {
-    const session = await getSession()
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (!session) {
+          router.push('/auth')
+          return
+        }
+        await loadData()
+      } else if (event === 'SIGNED_OUT') {
+        router.push('/auth')
+      }
+    })
 
-    if (!session) {
-      router.push('/auth')
-      return
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [router])
+
+  const loadData = async () => {
+    // Check if user is admin - session is guaranteed to be loaded here
+    const adminStatus = await isUserAdmin()
+    console.log('[claims] Admin status:', adminStatus)
+    setIsAdmin(adminStatus)
+
+    // Load incidents - admins see all, regular users see only their own
+    let userIncidents: IncidentWithProfile[]
+    if (adminStatus) {
+      console.log('[claims] Loading all incidents for admin...')
+      userIncidents = await getAllIncidentsForAdmin(100)
+
+      // Load admin statistics
+      const stats = await getAdminStatistics()
+      setAdminStats(stats)
+    } else {
+      console.log('[claims] Loading user incidents...')
+      userIncidents = await getUserIncidents(100)
     }
 
-    // Load all user incidents and claims
-    const userIncidents = await getUserIncidents(100)
+    console.log('[claims] Loaded incidents:', userIncidents.length)
     const userClaims = await getUserClaims()
 
     setIncidents(userIncidents)
     setClaims(userClaims)
     setLoading(false)
   }
+
+  // Filter incidents based on admin filters
+  const filteredIncidents = incidents.filter(incident => {
+    // Filter by company
+    if (filterCompany && incident.bus_company !== filterCompany) {
+      return false
+    }
+
+    // Filter by damage type
+    if (filterDamageType) {
+      if (filterDamageType === 'none') {
+        if (incident.damage_type) return false
+      } else {
+        if (incident.damage_type !== filterDamageType) return false
+      }
+    }
+
+    // Filter by status
+    if (filterStatus) {
+      if (filterStatus === 'verified' && !incident.verified) return false
+      if (filterStatus === 'rejected' && incident.status !== 'rejected') return false
+      if (filterStatus === 'claimed' && incident.status !== 'claimed') return false
+      if (filterStatus === 'submitted' && (incident.verified || incident.status === 'rejected' || incident.status === 'claimed')) return false
+    }
+
+    return true
+  })
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -85,13 +199,16 @@ export default function MyClaimsPage() {
     return calculateCompensation({
       incidentType: incident.incident_type,
       delayMinutes: incident.incident_type === 'delay' ? 30 : undefined, // Default assumption
-      damageType: incident.damage_type,
-      damageAmount: incident.damage_amount,
+      damageType: incident.damage_type ?? undefined,
+      damageAmount: incident.damage_amount ?? undefined,
       busCompany: incident.bus_company,
     })
   }
 
-  const totalPotential = incidents.reduce((sum, incident) => {
+  // Use filtered incidents for display
+  const displayIncidents = isAdmin ? filteredIncidents : incidents
+
+  const totalPotential = displayIncidents.reduce((sum, incident) => {
     const compensation = getIncidentCompensation(incident)
     return sum + compensation.totalCompensation
   }, 0)
@@ -121,8 +238,20 @@ export default function MyClaimsPage() {
                 <ArrowRight className="w-6 h-6 text-gray-600" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">התיקים שלי</h1>
-                <p className="text-sm text-gray-600">ארכיון דיווחים ותביעות</p>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    {isAdmin ? 'כל הדיווחים' : 'התיקים שלי'}
+                  </h1>
+                  {isAdmin && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">
+                      <Shield className="w-3 h-3" />
+                      מנהל
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-600">
+                  {isAdmin ? 'תצוגת מנהל - כל הדיווחים מכל המשתמשים' : 'ארכיון דיווחים ותביעות'}
+                </p>
               </div>
             </div>
             <div className="text-left">
@@ -132,6 +261,118 @@ export default function MyClaimsPage() {
           </div>
         </div>
       </header>
+
+      {/* Admin Statistics and Filters */}
+      {isAdmin && adminStats && (
+        <div className="bg-gradient-to-r from-purple-600 to-indigo-700 text-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {/* Statistics Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <User className="w-4 h-4 text-purple-200" />
+                  <span className="text-xs text-purple-200">לקוחות</span>
+                </div>
+                <div className="text-2xl font-bold">{adminStats.totalUsers}</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileText className="w-4 h-4 text-purple-200" />
+                  <span className="text-xs text-purple-200">דיווחים</span>
+                </div>
+                <div className="text-2xl font-bold">{adminStats.totalIncidents}</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="w-4 h-4 text-purple-200" />
+                  <span className="text-xs text-purple-200">פוטנציאל</span>
+                </div>
+                <div className="text-2xl font-bold">₪{adminStats.totalPotentialCompensation.toLocaleString()}</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCircle className="w-4 h-4 text-green-300" />
+                  <span className="text-xs text-purple-200">שולם</span>
+                </div>
+                <div className="text-2xl font-bold text-green-300">₪{adminStats.totalPaidCompensation.toLocaleString()}</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border-2 border-yellow-400/50">
+                <div className="flex items-center gap-2 mb-1">
+                  <Banknote className="w-4 h-4 text-yellow-300" />
+                  <span className="text-xs text-yellow-200">עמלה (20%)</span>
+                </div>
+                <div className="text-2xl font-bold text-yellow-300">₪{adminStats.totalCommission.toLocaleString()}</div>
+              </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-purple-200" />
+                <span className="text-sm text-purple-200">סינון:</span>
+              </div>
+
+              {/* Company Filter */}
+              <select
+                value={filterCompany}
+                onChange={(e) => setFilterCompany(e.target.value)}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:ring-2 focus:ring-white/50 focus:border-transparent"
+              >
+                {BUS_COMPANIES.map(company => (
+                  <option key={company.value} value={company.value} className="text-gray-900">
+                    {company.label}
+                  </option>
+                ))}
+              </select>
+
+              {/* Damage Type Filter */}
+              <select
+                value={filterDamageType}
+                onChange={(e) => setFilterDamageType(e.target.value)}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:ring-2 focus:ring-white/50 focus:border-transparent"
+              >
+                {DAMAGE_TYPES.map(damage => (
+                  <option key={damage.value} value={damage.value} className="text-gray-900">
+                    {damage.label}
+                  </option>
+                ))}
+              </select>
+
+              {/* Status Filter */}
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:ring-2 focus:ring-white/50 focus:border-transparent"
+              >
+                {STATUS_FILTERS.map(status => (
+                  <option key={status.value} value={status.value} className="text-gray-900">
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+
+              {/* Active Filters Count */}
+              {(filterCompany || filterDamageType || filterStatus) && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full font-medium">
+                    {displayIncidents.length} תוצאות
+                  </span>
+                  <button
+                    onClick={() => {
+                      setFilterCompany('')
+                      setFilterDamageType('')
+                      setFilterStatus('')
+                    }}
+                    className="text-xs text-purple-200 hover:text-white underline"
+                  >
+                    נקה סינון
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -247,6 +488,13 @@ export default function MyClaimsPage() {
 
                             {/* Incident Details */}
                             <div className="flex-1">
+                              {/* Show customer name for admins */}
+                              {isAdmin && incident.profiles && (
+                                <div className="flex items-center gap-1 text-xs text-purple-600 mb-1">
+                                  <User className="w-3 h-3" />
+                                  <span>{incident.profiles.full_name}</span>
+                                </div>
+                              )}
                               <div className="font-bold text-gray-900 mb-1">
                                 {getBusCompanyName(incident.bus_company)}
                               </div>
@@ -293,6 +541,26 @@ export default function MyClaimsPage() {
             {selectedIncident ? (
               <div className="card">
                 <h3 className="text-xl font-bold text-gray-900 mb-6">פרטי התיק</h3>
+
+                {/* Customer Info - Admin only */}
+                {isAdmin && selectedIncident.profiles && (
+                  <div className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="flex items-center gap-2 mb-3">
+                      <User className="w-5 h-5 text-purple-600" />
+                      <h4 className="font-semibold text-purple-900">פרטי הלקוח</h4>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-purple-700">שם:</span>
+                        <span className="font-medium text-purple-900">{selectedIncident.profiles.full_name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-purple-700">טלפון:</span>
+                        <span className="font-medium text-purple-900">{selectedIncident.profiles.phone}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Map */}
                 <div className="mb-6">
@@ -377,12 +645,14 @@ export default function MyClaimsPage() {
                           </div>
                         </div>
 
-                        {/* Legal Basis */}
-                        <div className="border-t border-green-300 pt-3 text-xs text-green-800">
-                          <div className="font-semibold mb-1">בסיס משפטי:</div>
-                          <div>{compensation.legalBasis}</div>
-                          <div className="mt-2 text-green-700">{compensation.description}</div>
-                        </div>
+                        {/* Legal Basis - Only visible for admins */}
+                        {isAdmin && (
+                          <div className="border-t border-green-300 pt-3 text-xs text-green-800">
+                            <div className="font-semibold mb-1">בסיס משפטי:</div>
+                            <div>{compensation.legalBasis}</div>
+                            <div className="mt-2 text-green-700">{compensation.description}</div>
+                          </div>
+                        )}
                       </div>
                     )
                   })()}

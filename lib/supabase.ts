@@ -45,21 +45,29 @@ export interface Incident {
   bus_line: string
   bus_company: string
   station_name: string
-  station_gps_lat?: number
-  station_gps_lng?: number
+  station_gps_lat?: number | null
+  station_gps_lng?: number | null
   user_gps_lat: number
   user_gps_lng: number
-  user_gps_accuracy?: number // GPS accuracy in meters
+  user_gps_accuracy?: number | null // GPS accuracy in meters
   incident_type: 'delay' | 'no_stop' | 'no_arrival'
   incident_datetime: string
-  damage_type?: 'taxi_cost' | 'lost_workday' | 'missed_exam' | 'medical_appointment' | 'other'
-  damage_amount?: number
-  damage_description?: string
+  delay_minutes?: number | null // Duration of delay in minutes
+  damage_type?: 'taxi_cost' | 'lost_workday' | 'missed_exam' | 'medical_appointment' | 'other' | null
+  damage_amount?: number | null
+  damage_description?: string | null
   photo_urls?: string[]
+  receipt_urls?: string[] // URLs of uploaded receipts
+  osm_address?: string | null // Full address from OpenStreetMap (fallback when GTFS unavailable)
   verified: boolean
   is_verified?: boolean // Set by verification logic
   verification_data?: any
   verification_timestamp?: string
+  // Compensation fields
+  base_compensation?: number | null
+  damage_compensation?: number | null
+  total_compensation?: number | null
+  legal_basis?: string | null
   status: 'submitted' | 'verified' | 'rejected' | 'claimed'
   created_at: string
   updated_at: string
@@ -479,11 +487,50 @@ export async function uploadIncidentPhoto(file: File, incidentId: string): Promi
 }
 
 /**
- * Create incident with photo upload
+ * Upload receipt to Supabase Storage
+ * @param file - The receipt file to upload
+ * @param incidentId - The incident ID for file naming
+ * @returns Public URL of the uploaded receipt
+ */
+export async function uploadReceipt(file: File, incidentId: string): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('User not authenticated')
+  }
+
+  // Create unique filename
+  const fileExt = file.name.split('.').pop()
+  const fileName = `${user.id}/${incidentId}_receipt_${Date.now()}.${fileExt}`
+
+  // Upload file to storage
+  const { data, error } = await supabase.storage
+    .from('receipts')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false,
+    })
+
+  if (error) {
+    console.error('Error uploading receipt:', error)
+    throw error
+  }
+
+  // Get public URL
+  const { data: { publicUrl } } = supabase.storage
+    .from('receipts')
+    .getPublicUrl(fileName)
+
+  return publicUrl
+}
+
+/**
+ * Create incident with photo and receipt upload
  */
 export async function createIncidentWithPhoto(
   incident: Omit<Incident, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'verified' | 'status'>,
-  photoFile?: File
+  photoFile?: File,
+  receiptFile?: File
 ): Promise<Incident> {
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -491,12 +538,21 @@ export async function createIncidentWithPhoto(
     throw new Error('User not authenticated')
   }
 
+  // Clean incident data - convert undefined to null for Supabase
+  // This prevents "invalid input syntax" errors when optional fields are undefined
+  const cleanedIncident: Record<string, any> = {}
+  for (const [key, value] of Object.entries(incident)) {
+    cleanedIncident[key] = value === undefined ? null : value
+  }
+
+  console.log('Creating incident with cleaned data:', cleanedIncident)
+
   // First create the incident
   const { data: newIncident, error: incidentError } = await supabase
     .from('incidents')
     .insert({
       user_id: user.id,
-      ...incident,
+      ...cleanedIncident,
     })
     .select()
     .single()
@@ -506,31 +562,49 @@ export async function createIncidentWithPhoto(
     throw incidentError
   }
 
-  // If there's a photo, upload it and update the incident
-  if (photoFile && newIncident) {
-    try {
-      const photoUrl = await uploadIncidentPhoto(photoFile, newIncident.id)
+  // Upload photo and receipt in parallel if both exist
+  const uploadPromises: Promise<{ type: 'photo' | 'receipt'; url: string }>[] = []
 
-      // Update incident with photo URL
+  if (photoFile && newIncident) {
+    uploadPromises.push(
+      uploadIncidentPhoto(photoFile, newIncident.id).then((url) => ({ type: 'photo' as const, url }))
+    )
+  }
+
+  if (receiptFile && newIncident) {
+    uploadPromises.push(
+      uploadReceipt(receiptFile, newIncident.id).then((url) => ({ type: 'receipt' as const, url }))
+    )
+  }
+
+  if (uploadPromises.length > 0) {
+    try {
+      const uploads = await Promise.all(uploadPromises)
+      const photoUrls = uploads.filter((u) => u.type === 'photo').map((u) => u.url)
+      const receiptUrls = uploads.filter((u) => u.type === 'receipt').map((u) => u.url)
+
+      // Update incident with photo and receipt URLs
+      const updateData: any = {}
+      if (photoUrls.length > 0) updateData.photo_urls = photoUrls
+      if (receiptUrls.length > 0) updateData.receipt_urls = receiptUrls
+
       const { data: updatedIncident, error: updateError } = await supabase
         .from('incidents')
-        .update({
-          photo_urls: [photoUrl],
-        })
+        .update(updateData)
         .eq('id', newIncident.id)
         .select()
         .single()
 
       if (updateError) {
-        console.error('Error updating incident with photo:', updateError)
-        // Don't throw - incident was created successfully, photo is optional
+        console.error('Error updating incident with files:', updateError)
+        // Don't throw - incident was created successfully, files are optional
         return newIncident
       }
 
       return updatedIncident
-    } catch (photoError) {
-      console.error('Error uploading photo:', photoError)
-      // Don't throw - incident was created successfully, photo is optional
+    } catch (uploadError) {
+      console.error('Error uploading files:', uploadError)
+      // Don't throw - incident was created successfully, files are optional
       return newIncident
     }
   }
@@ -544,24 +618,93 @@ export async function createIncidentWithPhoto(
 
 /**
  * Check if current user is an admin
+ * Returns true if user exists in admin_users table
+ * IMPORTANT: Only selects columns that exist in the base schema to avoid 400 errors
  */
 export async function isUserAdmin(): Promise<boolean> {
-  const { data: { user } } = await supabase.auth.getUser()
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-  if (!user) return false
+    if (authError) {
+      console.error('[isUserAdmin] Auth error:', authError.message)
+      return false
+    }
 
-  const { data, error } = await supabase
-    .from('admin_users')
-    .select('id')
-    .eq('id', user.id)  // FIXED: admin_users.id is the primary key, not user_id
-    .single()
+    if (!user) {
+      console.log('[isUserAdmin] No user logged in')
+      return false
+    }
 
-  if (error) {
-    console.error('Error checking admin status:', error)
+    console.log('[isUserAdmin] Checking admin status for user:', user.id, user.email)
+
+    // Only select columns that definitely exist in admin_users table
+    // Base schema: id, email, role, can_approve_claims, can_generate_letters, can_view_all_users, created_at, last_login
+    const { data, error } = await supabase
+      .from('admin_users')
+      .select('id, email, role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (error) {
+      console.error('[isUserAdmin] Error checking admin status:', error.message, error.code)
+      console.error('[isUserAdmin] Error details:', error.details, error.hint)
+      // RLS might be blocking - this is expected for non-admins
+      if (error.code === 'PGRST116' || error.message.includes('permission denied')) {
+        console.log('[isUserAdmin] RLS blocked access - user is not admin')
+        return false
+      }
+      return false
+    }
+
+    if (!data) {
+      console.log('[isUserAdmin] No admin record found for this user')
+      return false
+    }
+
+    console.log('[isUserAdmin] SUCCESS - Admin found! Role:', data.role, 'Email:', data.email)
+    return true
+  } catch (err) {
+    console.error('[isUserAdmin] Unexpected error:', err)
     return false
   }
+}
 
-  return !!data
+/**
+ * Get admin user data (for showing admin badge, role, etc.)
+ * IMPORTANT: Only selects columns that exist in the base schema to avoid 400 errors
+ */
+export async function getAdminUserData(): Promise<{
+  isAdmin: boolean
+  role?: string
+  canViewAllUsers?: boolean
+  canApproveClaims?: boolean
+  canGenerateLetters?: boolean
+} | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return null
+  }
+
+  // Only select columns from the base admin_users schema
+  const { data, error } = await supabase
+    .from('admin_users')
+    .select('id, email, role, can_approve_claims, can_generate_letters, can_view_all_users')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (error || !data) {
+    console.log('[getAdminUserData] Error or no data:', error?.message)
+    return { isAdmin: false }
+  }
+
+  return {
+    isAdmin: true,
+    role: data.role,
+    canViewAllUsers: data.can_view_all_users,
+    canApproveClaims: data.can_approve_claims,
+    canGenerateLetters: data.can_generate_letters,
+  }
 }
 
 /**
@@ -1038,5 +1181,287 @@ export async function updateIncidentToClaimed(incidentId: string): Promise<void>
   if (error) {
     console.error('Error updating incident status:', error)
     throw error
+  }
+}
+
+/**
+ * Get all incidents - for admins only (RLS allows this)
+ * Returns incidents with user profile data
+ */
+export async function getAllIncidentsForAdmin(limit: number = 100): Promise<(Incident & { profiles?: { full_name: string; phone: string; email?: string } })[]> {
+  const { data, error } = await supabase
+    .from('incidents')
+    .select(`
+      *,
+      profiles!incidents_user_id_fkey (
+        full_name,
+        phone
+      )
+    `)
+    .order('incident_datetime', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error('Error fetching all incidents for admin:', error)
+    return []
+  }
+
+  return data || []
+}
+
+// =====================================================
+// Admin Quick Actions
+// =====================================================
+
+/**
+ * Admin: Update incident status (approve/reject)
+ * Updates the incident status and recalculates user financials
+ */
+export async function adminUpdateIncidentStatus(
+  incidentId: string,
+  newStatus: 'verified' | 'rejected' | 'claimed'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get incident details including user_id
+    const { data: incident, error: incidentError } = await supabase
+      .from('incidents')
+      .select('*, profiles!incidents_user_id_fkey(total_potential, total_received)')
+      .eq('id', incidentId)
+      .single()
+
+    if (incidentError || !incident) {
+      return { success: false, error: 'דיווח לא נמצא' }
+    }
+
+    // Update incident status
+    const updateData: Partial<Incident> = {
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (newStatus === 'verified') {
+      updateData.verified = true
+      updateData.verification_timestamp = new Date().toISOString()
+    }
+
+    const { error: updateError } = await supabase
+      .from('incidents')
+      .update(updateData)
+      .eq('id', incidentId)
+
+    if (updateError) {
+      return { success: false, error: 'שגיאה בעדכון סטטוס הדיווח' }
+    }
+
+    // Recalculate user financials
+    await recalculateUserFinancials(incident.user_id)
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error in adminUpdateIncidentStatus:', error)
+    return { success: false, error: 'שגיאה לא צפויה' }
+  }
+}
+
+/**
+ * Admin: Mark incident as paid and update user's total_received
+ */
+export async function adminMarkIncidentPaid(
+  incidentId: string,
+  paidAmount: number
+): Promise<{ success: boolean; error?: string; commissionAmount?: number }> {
+  try {
+    // Get incident and user profile
+    const { data: incident, error: incidentError } = await supabase
+      .from('incidents')
+      .select('*, profiles!incidents_user_id_fkey(id, total_received, total_potential)')
+      .eq('id', incidentId)
+      .single()
+
+    if (incidentError || !incident) {
+      return { success: false, error: 'דיווח לא נמצא' }
+    }
+
+    // Calculate commission (20%)
+    const commissionAmount = Math.round(paidAmount * 0.20)
+    const userReceives = paidAmount - commissionAmount
+
+    // Update incident status to claimed/paid
+    const { error: updateIncidentError } = await supabase
+      .from('incidents')
+      .update({
+        status: 'claimed',
+        verified: true,
+        total_compensation: paidAmount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', incidentId)
+
+    if (updateIncidentError) {
+      return { success: false, error: 'שגיאה בעדכון סטטוס' }
+    }
+
+    // Update user profile: add to total_received, subtract from total_potential
+    const newTotalReceived = (incident.profiles?.total_received || 0) + userReceives
+    const currentCompensation = incident.total_compensation || 0
+    const newTotalPotential = Math.max(0, (incident.profiles?.total_potential || 0) - currentCompensation)
+
+    const { error: updateProfileError } = await supabase
+      .from('profiles')
+      .update({
+        total_received: newTotalReceived,
+        total_potential: newTotalPotential,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', incident.user_id)
+
+    if (updateProfileError) {
+      console.error('Error updating profile:', updateProfileError)
+      return { success: false, error: 'שגיאה בעדכון פרופיל המשתמש' }
+    }
+
+    return { success: true, commissionAmount }
+  } catch (error) {
+    console.error('Error in adminMarkIncidentPaid:', error)
+    return { success: false, error: 'שגיאה לא צפויה' }
+  }
+}
+
+/**
+ * Recalculate user's total_potential based on their incidents
+ */
+export async function recalculateUserFinancials(userId: string): Promise<void> {
+  try {
+    // Get all user incidents
+    const { data: incidents, error } = await supabase
+      .from('incidents')
+      .select('status, total_compensation, verified')
+      .eq('user_id', userId)
+
+    if (error || !incidents) {
+      console.error('Error fetching user incidents:', error)
+      return
+    }
+
+    // Calculate totals
+    let totalPotential = 0
+    const totalIncidents = incidents.length
+    let approvedClaims = 0
+
+    for (const incident of incidents) {
+      const compensation = incident.total_compensation || 0
+
+      if (incident.status === 'verified' || incident.verified) {
+        approvedClaims++
+      }
+
+      // Add to potential if not yet claimed/paid
+      if (incident.status !== 'claimed' && incident.status !== 'rejected') {
+        totalPotential += compensation
+      }
+    }
+
+    // Update profile
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        total_potential: totalPotential,
+        total_incidents: totalIncidents,
+        approved_claims: approvedClaims,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId)
+
+    if (updateError) {
+      console.error('Error updating profile financials:', updateError)
+    }
+  } catch (error) {
+    console.error('Error in recalculateUserFinancials:', error)
+  }
+}
+
+/**
+ * Get admin statistics summary
+ */
+export async function getAdminStatistics(): Promise<{
+  totalUsers: number
+  totalIncidents: number
+  totalPotentialCompensation: number
+  totalPaidCompensation: number
+  totalCommission: number
+  byCompany: Record<string, { incidents: number; amount: number }>
+  byDamageType: Record<string, { incidents: number; amount: number }>
+}> {
+  const defaultStats = {
+    totalUsers: 0,
+    totalIncidents: 0,
+    totalPotentialCompensation: 0,
+    totalPaidCompensation: 0,
+    totalCommission: 0,
+    byCompany: {},
+    byDamageType: {},
+  }
+
+  try {
+    // Get all incidents
+    const { data: incidents, error } = await supabase
+      .from('incidents')
+      .select('*')
+
+    if (error || !incidents) {
+      return defaultStats
+    }
+
+    // Get unique users
+    const uniqueUsers = new Set(incidents.map(i => i.user_id))
+
+    // Calculate stats
+    let totalPotential = 0
+    let totalPaid = 0
+    const byCompany: Record<string, { incidents: number; amount: number }> = {}
+    const byDamageType: Record<string, { incidents: number; amount: number }> = {}
+
+    for (const incident of incidents) {
+      const compensation = incident.total_compensation || 0
+
+      // Total potential
+      if (incident.status !== 'claimed' && incident.status !== 'rejected') {
+        totalPotential += compensation
+      }
+
+      // Total paid (claimed status)
+      if (incident.status === 'claimed') {
+        totalPaid += compensation
+      }
+
+      // By company
+      const company = incident.bus_company || 'unknown'
+      if (!byCompany[company]) {
+        byCompany[company] = { incidents: 0, amount: 0 }
+      }
+      byCompany[company].incidents++
+      byCompany[company].amount += compensation
+
+      // By damage type
+      const damageType = incident.damage_type || 'none'
+      if (!byDamageType[damageType]) {
+        byDamageType[damageType] = { incidents: 0, amount: 0 }
+      }
+      byDamageType[damageType].incidents++
+      byDamageType[damageType].amount += compensation
+    }
+
+    return {
+      totalUsers: uniqueUsers.size,
+      totalIncidents: incidents.length,
+      totalPotentialCompensation: totalPotential,
+      totalPaidCompensation: totalPaid,
+      totalCommission: Math.round(totalPaid * 0.20),
+      byCompany,
+      byDamageType,
+    }
+  } catch (error) {
+    console.error('Error in getAdminStatistics:', error)
+    return defaultStats
   }
 }
