@@ -10,7 +10,7 @@ import {
 } from '@/lib/supabase'
 import { calculateCompensation, getBusCompanyName } from '@/lib/compensation'
 import {
-  generateLegalPDF, // הפונקציה החדשה שלנו
+  generateLegalPDF,
   downloadPDF,
 } from '@/lib/pdfGenerator'
 import {
@@ -33,6 +33,7 @@ import {
   Shield,
   Banknote,
   Gavel,
+  Scale,
 } from 'lucide-react'
 
 interface IncidentDetail {
@@ -65,9 +66,11 @@ export default function ClaimDetailPage() {
 
   const [incident, setIncident] = useState<IncidentDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [generatingPDF, setGeneratingPDF] = useState<string | null>(null) // מחזיק את סוג המכתב שנוצר כרגע
+  const [generatingPDF, setGeneratingPDF] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [statusUpdateSuccess, setStatusUpdateSuccess] = useState<string | null>(null)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState('')
 
   useEffect(() => {
     if (incidentId) {
@@ -109,7 +112,6 @@ export default function ClaimDetailPage() {
     }
   }
 
-  // פונקציית יצירת המכתב הדינמית
   const handleGenerateLetter = async (type: 'demand' | 'warning' | 'lawsuit') => {
     if (!incident) return
     setGeneratingPDF(type)
@@ -123,7 +125,6 @@ export default function ClaimDetailPage() {
         busCompany: incident.bus_company,
       })
 
-      // הכנת כל הנתונים של הלקוח עבור התבנית
       const customerData = {
         incidentId: incident.id,
         customerName: incident.customer_name,
@@ -146,27 +147,42 @@ export default function ClaimDetailPage() {
       
       setStatusUpdateSuccess(`מכתב ${type === 'demand' ? 'דרישה' : type === 'warning' ? 'התראה' : 'טיוטת תביעה'} הופק בהצלחה!`)
     } catch (error) {
-      alert('שגיאה ביצירת ה-PDF. וודא שהתבניות קיימות בטבלה letter_templates')
+      alert('שגיאה ביצירת ה-PDF')
     } finally {
       setGeneratingPDF(null)
     }
   }
 
-  if (loading) return <div className="p-20 text-center">טוען נתונים...</div>
-  if (!incident) return <div className="p-20 text-center text-red-500">תביעה לא נמצאה</div>
+  const handleMarkAsPaid = async () => {
+    if (!incident || !paymentAmount) return
+    setUpdatingStatus(true)
+    try {
+      await adminMarkIncidentPaid(incident.id, parseFloat(paymentAmount))
+      setShowPaymentModal(false)
+      setStatusUpdateSuccess('התשלום נרשם בהצלחה!')
+      loadIncidentDetails()
+    } catch (error) {
+      alert('שגיאה ברישום התשלום')
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
+  if (loading) return <div className="p-20 text-center text-content-tertiary">טוען נתונים...</div>
+  if (!incident) return <div className="p-20 text-center text-status-rejected">תביעה לא נמצאה</div>
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto rtl" dir="rtl">
       {/* Header */}
       <div className="mb-8 flex justify-between items-center">
         <div>
-          <button onClick={() => router.push('/admin/claims')} className="flex items-center gap-2 text-gray-500 hover:text-black mb-2">
+          <button onClick={() => router.push('/admin/claims')} className="flex items-center gap-2 text-content-tertiary hover:text-content-primary mb-2 transition-colors">
             <ArrowRight className="w-4 h-4" /> חזרה לרשימה
           </button>
-          <h1 className="text-3xl font-bold">תיק תביעה: {incident.customer_name}</h1>
+          <h1 className="text-3xl font-bold text-content-primary">תיק תביעה: {incident.customer_name}</h1>
         </div>
         <div className="flex gap-2">
-           <span className={`px-4 py-2 rounded-full text-sm font-bold ${incident.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+           <span className={`px-4 py-2 rounded-full text-sm font-bold ${incident.status === 'paid' ? 'status-badge-approved' : 'status-badge-pending'}`}>
              סטטוס: {incident.status}
            </span>
         </div>
@@ -176,80 +192,80 @@ export default function ClaimDetailPage() {
         
         {/* עמודה ימנית - פעולות משפטיות */}
         <div className="md:col-span-2 space-y-6">
-          <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Scale className="w-6 h-6 text-orange-500" /> שלבי הטיפול המשפטי
+          <div className="card">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-content-primary">
+              <Scale className="w-6 h-6 text-accent" /> שלבי הטיפול המשפטי
             </h2>
             <div className="grid grid-cols-1 gap-4">
               {/* מכתב דרישה */}
               <button 
                 onClick={() => handleGenerateLetter('demand')}
                 disabled={!!generatingPDF}
-                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-all"
+                className="flex items-center justify-between p-4 border border-surface-border rounded-lg hover:bg-surface-border transition-all"
               >
                 <div className="flex items-center gap-3">
-                  <div className="bg-blue-100 p-2 rounded-full text-blue-600"><FileText /></div>
+                  <div className="bg-surface-overlay p-2 rounded-full text-status-legal"><FileText /></div>
                   <div className="text-right">
-                    <p className="font-bold">שלב א': מכתב דרישה ראשוני</p>
-                    <p className="text-xs text-gray-500">שליחה לחברה בבקשה לפיצוי לפי תקנה 428</p>
+                    <p className="font-bold text-content-primary">שלב א': מכתב דרישה ראשוני</p>
+                    <p className="text-xs text-content-tertiary">שליחה לחברה בבקשה לפיצוי לפי תקנה 428</p>
                   </div>
                 </div>
-                {generatingPDF === 'demand' ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5 text-gray-400" />}
+                {generatingPDF === 'demand' ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5 text-content-tertiary" />}
               </button>
 
               {/* מכתב התראה */}
               <button 
                 onClick={() => handleGenerateLetter('warning')}
                 disabled={!!generatingPDF}
-                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                className="flex items-center justify-between p-4 border border-surface-border rounded-lg hover:bg-surface-border"
               >
                 <div className="flex items-center gap-3">
-                  <div className="bg-orange-100 p-2 rounded-full text-orange-600"><AlertCircle /></div>
+                  <div className="bg-status-pending-surface p-2 rounded-full text-status-pending"><AlertCircle /></div>
                   <div className="text-right">
-                    <p className="font-bold">שלב ב': מכתב התראה לפני תביעה</p>
-                    <p className="text-xs text-gray-500">נשלח לאחר 14 יום ללא מענה מחברת האוטובוסים</p>
+                    <p className="font-bold text-content-primary">שלב ב': מכתב התראה לפני תביעה</p>
+                    <p className="text-xs text-content-tertiary">נשלח לאחר 14 יום ללא מענה מחברת האוטובוסים</p>
                   </div>
                 </div>
-                {generatingPDF === 'warning' ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5 text-gray-400" />}
+                {generatingPDF === 'warning' ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5 text-content-tertiary" />}
               </button>
 
               {/* טיוטת כתב תביעה */}
               <button 
                 onClick={() => handleGenerateLetter('lawsuit')}
                 disabled={!!generatingPDF}
-                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                className="flex items-center justify-between p-4 border border-surface-border rounded-lg hover:bg-surface-border"
               >
                 <div className="flex items-center gap-3">
-                  <div className="bg-red-100 p-2 rounded-full text-red-600"><Gavel /></div>
+                  <div className="bg-status-rejected-surface p-2 rounded-full text-status-rejected"><Gavel /></div>
                   <div className="text-right">
-                    <p className="font-bold">שלב ג': טיוטת כתב תביעה</p>
-                    <p className="text-xs text-gray-500">מוכן להגשה לבית המשפט לתביעות קטנות</p>
+                    <p className="font-bold text-content-primary">שלב ג': טיוטת כתב תביעה</p>
+                    <p className="text-xs text-content-tertiary">מוכן להגשה לבית המשפט לתביעות קטנות</p>
                   </div>
                 </div>
-                {generatingPDF === 'lawsuit' ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5 text-gray-400" />}
+                {generatingPDF === 'lawsuit' ? <Loader2 className="animate-spin" /> : <Download className="w-5 h-5 text-content-tertiary" />}
               </button>
             </div>
           </div>
 
           {/* פרטי האירוע */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h2 className="text-xl font-bold mb-4">פרטי האירוע</h2>
+          <div className="card">
+            <h2 className="text-xl font-bold mb-4 text-content-primary">פרטי האירוע</h2>
             <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="bg-gray-50 p-3 rounded">
-                <p className="text-gray-500">חברה</p>
-                <p className="font-bold">{getBusCompanyName(incident.bus_company)}</p>
+              <div className="bg-surface-overlay p-3 rounded">
+                <p className="text-content-tertiary">חברה</p>
+                <p className="font-bold text-content-primary">{getBusCompanyName(incident.bus_company)}</p>
               </div>
-              <div className="bg-gray-50 p-3 rounded">
-                <p className="text-gray-500">קו</p>
-                <p className="font-bold">{incident.bus_line}</p>
+              <div className="bg-surface-overlay p-3 rounded">
+                <p className="text-content-tertiary">קו</p>
+                <p className="font-bold text-content-primary">{incident.bus_line}</p>
               </div>
-              <div className="bg-gray-50 p-3 rounded">
-                <p className="text-gray-500">תחנה</p>
-                <p className="font-bold">{incident.station_name}</p>
+              <div className="bg-surface-overlay p-3 rounded">
+                <p className="text-content-tertiary">תחנה</p>
+                <p className="font-bold text-content-primary">{incident.station_name}</p>
               </div>
-              <div className="bg-gray-50 p-3 rounded">
-                <p className="text-gray-500">זמן</p>
-                <p className="font-bold">{new Date(incident.incident_datetime).toLocaleString('he-IL')}</p>
+              <div className="bg-surface-overlay p-3 rounded">
+                <p className="text-content-tertiary">זמן</p>
+                <p className="font-bold text-content-primary">{new Date(incident.incident_datetime).toLocaleString('he-IL')}</p>
               </div>
             </div>
           </div>
@@ -257,11 +273,11 @@ export default function ClaimDetailPage() {
 
         {/* עמודה שמאלית - פרטי לקוח וכספים */}
         <div className="space-y-6">
-          <div className="bg-gray-900 text-white p-6 rounded-xl shadow-lg">
+          <div className="bg-surface-raised text-content-primary p-6 rounded-xl shadow-glass border border-surface-border">
             <h3 className="text-lg font-bold mb-4">סיכום פיצוי</h3>
             <div className="flex justify-between items-end mb-4">
-              <span className="text-gray-400">סכום מוערך:</span>
-              <span className="text-3xl font-bold text-orange-400">₪{calculateCompensation({
+              <span className="text-content-secondary">סכום מוערך:</span>
+              <span className="text-3xl font-bold text-accent">₪{calculateCompensation({
                 incidentType: incident.incident_type,
                 delayMinutes: 30,
                 busCompany: incident.bus_company
@@ -269,22 +285,56 @@ export default function ClaimDetailPage() {
             </div>
             <button 
               onClick={() => setShowPaymentModal(true)}
-              className="w-full py-3 bg-green-600 hover:bg-green-700 rounded-lg font-bold transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2"
             >
               <Banknote className="w-5 h-5" /> סמן כהתקבל תשלום
             </button>
           </div>
 
-          <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h3 className="font-bold mb-4 flex items-center gap-2"><User className="w-4 h-4" /> פרטי הלקוח</h3>
-            <div className="space-y-2 text-sm">
-              <p><span className="text-gray-500">טלפון:</span> {incident.customer_phone}</p>
-              <p><span className="text-gray-500">מייל:</span> {incident.customer_email}</p>
-              <p><span className="text-gray-500">ת.ז:</span> {incident.customer_id}</p>
+          <div className="card">
+            <h3 className="font-bold mb-4 flex items-center gap-2 text-content-primary"><User className="w-4 h-4 text-accent" /> פרטי הלקוח</h3>
+            <div className="space-y-2 text-sm text-content-secondary">
+              <p><span className="text-content-tertiary">טלפון:</span> {incident.customer_phone}</p>
+              <p><span className="text-content-tertiary">מייל:</span> {incident.customer_email}</p>
+              <p><span className="text-content-tertiary">ת.ז:</span> {incident.customer_id}</p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowPaymentModal(false)}>
+          <div className="bg-surface-raised p-6 rounded-xl shadow-glass max-w-md w-full mx-4 border border-surface-border" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-content-primary">
+              <Banknote className="w-6 h-6 text-status-approved" /> רישום תשלום
+            </h3>
+            <p className="text-content-secondary mb-4">הזן את סכום הפיצוי שהתקבל בפועל:</p>
+            <input
+              type="number"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+              placeholder="סכום ב-₪"
+              className="input-field mb-4 text-lg"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={handleMarkAsPaid}
+                disabled={updatingStatus || !paymentAmount}
+                className="flex-1 py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold disabled:opacity-50"
+              >
+                {updatingStatus ? <Loader2 className="animate-spin mx-auto" /> : 'אשר תשלום'}
+              </button>
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="px-6 py-3 border border-surface-border text-content-secondary rounded-lg hover:bg-surface-overlay"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

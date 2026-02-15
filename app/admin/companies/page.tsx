@@ -2,12 +2,6 @@
 
 /**
  * Admin Page: Bus Companies Management
- *
- * Allows admins to:
- * - View all bus companies
- * - Add/edit company contact information
- * - Configure submission methods (email vs web form)
- * - Set automation preferences
  */
 
 import { useState, useEffect } from 'react'
@@ -86,111 +80,112 @@ export default function CompaniesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-xl">טוען...</div>
+      <div className="flex items-center justify-center h-screen bg-surface-raised">
+        <div className="text-xl text-content-secondary">טוען...</div>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto px-4 py-8" dir="rtl">
-      <h1 className="text-3xl font-bold mb-8">ניהול חברות הסעות</h1>
+    <div className="container mx-auto px-4 py-8 min-h-screen bg-surface-raised" dir="rtl">
+      <h1 className="text-3xl font-bold mb-8 text-content-primary">ניהול חברות הסעות</h1>
 
-      {/* Stats */}
+      {/* Stats - Updated with card and text tokens */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-gray-600 text-sm">סך הכל חברות</div>
-          <div className="text-3xl font-bold text-orange-500">{companies.length}</div>
+        <div className="card">
+          <div className="text-content-tertiary text-sm">סך הכל חברות</div>
+          <div className="text-3xl font-bold text-accent">{companies.length}</div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-gray-600 text-sm">חברות עם אימייל</div>
-          <div className="text-3xl font-bold text-green-600">
+        <div className="card">
+          <div className="text-content-tertiary text-sm">חברות עם אימייל</div>
+          <div className="text-3xl font-bold text-status-approved">
             {companies.filter(c => c.public_contact_email).length}
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-gray-600 text-sm">דורשות אוטומציה</div>
-          <div className="text-3xl font-bold text-blue-600">
+        <div className="card">
+          <div className="text-content-tertiary text-sm">דורשות אוטומציה</div>
+          <div className="text-3xl font-bold text-status-legal">
             {companies.filter(c => c.requires_form_automation).length}
           </div>
         </div>
       </div>
 
-      {/* Add New Company */}
-      <div className="bg-white p-6 rounded-lg shadow mb-8">
-        <h2 className="text-xl font-bold mb-4">הוסף חברה חדשה</h2>
+      {/* Add New Company - Updated with card and input-field */}
+      <div className="card mb-8">
+        <h2 className="text-xl font-bold mb-4 text-content-primary">הוסף חברה חדשה</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input
             type="text"
             placeholder="שם החברה (עברית)"
             value={formData.company_name || ''}
             onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-            className="border rounded px-3 py-2"
+            className="input-field"
           />
           <input
             type="text"
             placeholder="שם החברה (אנגלית)"
             value={formData.company_name_en || ''}
             onChange={(e) => setFormData({ ...formData, company_name_en: e.target.value })}
-            className="border rounded px-3 py-2"
+            className="input-field"
           />
           <input
             type="email"
             placeholder="אימייל ליצירת קשר"
             value={formData.public_contact_email || ''}
             onChange={(e) => setFormData({ ...formData, public_contact_email: e.target.value })}
-            className="border rounded px-3 py-2"
+            className="input-field"
           />
           <input
             type="url"
             placeholder="קישור לטופס אונליין"
             value={formData.online_form_url || ''}
             onChange={(e) => setFormData({ ...formData, online_form_url: e.target.value })}
-            className="border rounded px-3 py-2"
+            className="input-field"
           />
-          <label className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-content-secondary cursor-pointer">
             <input
               type="checkbox"
               checked={formData.requires_form_automation || false}
               onChange={(e) => setFormData({ ...formData, requires_form_automation: e.target.checked })}
+              className="accent-accent"
             />
             <span>דורש אוטומציה של טפסים</span>
           </label>
         </div>
         <button
           onClick={handleAddNew}
-          className="mt-4 bg-orange-500 text-white px-6 py-2 rounded hover:bg-orange-600"
+          className="mt-4 btn-primary"
         >
           הוסף חברה
         </button>
       </div>
 
-      {/* Companies List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      {/* Companies List - Updated to table with card styles */}
+      <div className="card overflow-hidden !p-0">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-surface-overlay border-b border-surface-border">
             <tr>
-              <th className="px-6 py-3 text-right text-sm font-semibold">שם החברה</th>
-              <th className="px-6 py-3 text-right text-sm font-semibold">אימייל</th>
-              <th className="px-6 py-3 text-right text-sm font-semibold">טופס אונליין</th>
-              <th className="px-6 py-3 text-right text-sm font-semibold">שיטת שליחה</th>
-              <th className="px-6 py-3 text-right text-sm font-semibold">פעולות</th>
+              <th className="px-6 py-3 text-right text-sm font-semibold text-content-secondary">שם החברה</th>
+              <th className="px-6 py-3 text-right text-sm font-semibold text-content-secondary">אימייל</th>
+              <th className="px-6 py-3 text-right text-sm font-semibold text-content-secondary">טופס אונליין</th>
+              <th className="px-6 py-3 text-right text-sm font-semibold text-content-secondary">שיטת שליחה</th>
+              <th className="px-6 py-3 text-right text-sm font-semibold text-content-secondary">פעולות</th>
             </tr>
           </thead>
           <tbody>
             {companies.map((company) => (
-              <tr key={company.id} className="border-b hover:bg-gray-50">
+              <tr key={company.id} className="border-b border-surface-border hover:bg-surface-overlay transition-colors">
                 <td className="px-6 py-4">
-                  <div className="font-semibold">{company.company_name}</div>
-                  <div className="text-sm text-gray-500">{company.company_name_en}</div>
+                  <div className="font-semibold text-content-primary">{company.company_name}</div>
+                  <div className="text-sm text-content-tertiary">{company.company_name_en}</div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-6 py-4 text-content-secondary">
                   {editingId === company.id ? (
                     <input
                       type="email"
                       value={formData.public_contact_email || company.public_contact_email || ''}
                       onChange={(e) => setFormData({ ...formData, public_contact_email: e.target.value })}
-                      className="border rounded px-2 py-1 w-full"
+                      className="input-field py-1"
                     />
                   ) : (
                     <span className="text-sm">{company.public_contact_email || '-'}</span>
@@ -202,12 +197,12 @@ export default function CompaniesPage() {
                       type="url"
                       value={formData.online_form_url || company.online_form_url || ''}
                       onChange={(e) => setFormData({ ...formData, online_form_url: e.target.value })}
-                      className="border rounded px-2 py-1 w-full"
+                      className="input-field py-1"
                     />
                   ) : (
-                    <span className="text-sm truncate max-w-xs block">
+                    <span className="text-sm truncate max-w-xs block text-content-secondary">
                       {company.online_form_url ? (
-                        <a href={company.online_form_url} target="_blank" rel="noopener" className="text-blue-600 hover:underline">
+                        <a href={company.online_form_url} target="_blank" rel="noopener" className="text-accent hover:underline">
                           פתח טופס
                         </a>
                       ) : '-'}
@@ -216,21 +211,22 @@ export default function CompaniesPage() {
                 </td>
                 <td className="px-6 py-4">
                   {editingId === company.id ? (
-                    <label className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-content-secondary cursor-pointer">
                       <input
                         type="checkbox"
                         checked={formData.requires_form_automation ?? company.requires_form_automation}
                         onChange={(e) => setFormData({ ...formData, requires_form_automation: e.target.checked })}
+                        className="accent-accent"
                       />
                       <span className="text-sm">אוטומציה</span>
                     </label>
                   ) : (
-                    <span className={`px-2 py-1 text-xs rounded ${
+                    <span className={`px-2 py-1 text-xs rounded font-medium ${
                       company.requires_form_automation
-                        ? 'bg-blue-100 text-blue-800'
+                        ? 'status-badge-legal'
                         : company.public_contact_email
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
+                        ? 'status-badge-approved'
+                        : 'bg-surface-overlay text-content-tertiary'
                     }`}>
                       {company.requires_form_automation ? 'טופס (אוטומטי)' : company.public_contact_email ? 'אימייל' : 'ידני'}
                     </span>
@@ -241,7 +237,7 @@ export default function CompaniesPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleSave(company)}
-                        className="text-green-600 hover:text-green-800 text-sm font-semibold"
+                        className="text-status-approved hover:text-opacity-80 text-sm font-semibold"
                       >
                         שמור
                       </button>
@@ -250,7 +246,7 @@ export default function CompaniesPage() {
                           setEditingId(null)
                           setFormData({})
                         }}
-                        className="text-gray-600 hover:text-gray-800 text-sm"
+                        className="text-content-tertiary hover:text-content-secondary text-sm"
                       >
                         ביטול
                       </button>
@@ -261,7 +257,7 @@ export default function CompaniesPage() {
                         setEditingId(company.id)
                         setFormData(company)
                       }}
-                      className="text-orange-600 hover:text-orange-800 text-sm font-semibold"
+                      className="text-accent hover:text-accent-light text-sm font-semibold"
                     >
                       ערוך
                     </button>
@@ -273,14 +269,14 @@ export default function CompaniesPage() {
         </table>
       </div>
 
-      {/* Ministry Notification Info */}
-      <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <h3 className="font-bold text-blue-900 mb-2">📧 דיווח למשרד התחבורה</h3>
-        <p className="text-blue-800 text-sm">
+      {/* Ministry Notification Info - Updated with status surface tokens */}
+      <div className="mt-8 bg-surface-overlay border border-status-legal/20 rounded-lg p-6">
+        <h3 className="font-bold text-status-legal mb-2">📧 דיווח למשרד התחבורה</h3>
+        <p className="text-content-secondary text-sm">
           כל פנייה שנשלחת לחברות ההסעות מועתקת אוטומטית (BCC) למשרד התחבורה בכתובת:
-          <strong className="mr-2">Pniotcrm@mot.gov.il</strong>
+          <strong className="mr-2 text-content-primary">Pniotcrm@mot.gov.il</strong>
         </p>
-        <p className="text-blue-700 text-sm mt-2">
+        <p className="text-content-tertiary text-sm mt-2">
           זהו דרישה חוקית וחובה בכל שליחה - המערכת מוודאת זאת אוטומטית.
         </p>
       </div>

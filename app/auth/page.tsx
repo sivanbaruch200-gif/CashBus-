@@ -1,268 +1,264 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { signUp, signIn } from '@/lib/supabase'
-import { Bus, Mail, Lock, User, Phone, AlertCircle, CheckCircle } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { Bus, ArrowRight, Mail, Loader2, User, Phone, CreditCard, AlertCircle, CheckCircle } from 'lucide-react'
+
+// פונקציית עזר לאימות ת.ז. ישראלית. הוספתי אותה כאן כדי להבטיח שהקוד יעבוד.
+function validateIsraeliId(id: string): boolean {
+  let strId = String(id).trim()
+  if (strId.length > 9) {
+    return false
+  }
+  if (strId.length < 9) {
+    while (strId.length < 9) strId = '0' + strId
+  }
+  let counter = 0,
+    rawVal
+  for (let i = 0; i < strId.length; i++) {
+    rawVal = Number(strId[i]) * ((i % 2) + 1)
+    counter += rawVal > 9 ? rawVal - 9 : rawVal
+  }
+  return counter % 10 === 0
+}
 
 export default function AuthPage() {
-  const router = useRouter()
-  const [isLogin, setIsLogin] = useState(true)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-
-  // Form state
+  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
+  const [idNumber, setIdNumber] = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [idError, setIdError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsLoading(true)
     setError(null)
-    setSuccess(null)
-    setLoading(true)
+    setSuccessMessage(null)
 
-    try {
-      if (isLogin) {
-        // Login flow
-        await signIn(email, password)
-        setSuccess('התחברת בהצלחה!')
-        setTimeout(() => {
-          router.push('/')
-        }, 1000)
-      } else {
-        // Sign up flow
-        if (!fullName || !phone) {
-          setError('נא למלא את כל השדות')
-          setLoading(false)
-          return
-        }
-
-        await signUp(email, password, fullName, phone)
-        setSuccess('נרשמת בהצלחה! בדוק את המייל שלך לאימות')
-        setTimeout(() => {
-          setIsLogin(true)
-        }, 2000)
+    if (mode === 'register') {
+      if (idError || !fullName || !phone || !idNumber) {
+        setError('נא למלא את כל שדות ההרשמה כראוי.')
+        setIsLoading(false)
+        return
       }
-    } catch (err: any) {
-      setError(err.message || 'אירעה שגיאה. נסה שוב')
-    } finally {
-      setLoading(false)
+      // שמירת פרטים נוספים ב-localStorage לפני שליחת הקישור.
+      // הנתונים ייאספו ויישמרו בפרופיל המשתמש לאחר שיאשר את המייל.
+      const registrationData = { full_name: fullName, phone, id_number: idNumber }
+      localStorage.setItem('pending_registration_data', JSON.stringify(registrationData))
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        // ודא שאפשרות זו (Sign up new users) מופעלת בהגדרות Supabase Auth
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+
+    setIsLoading(false)
+
+    if (error) {
+      setError(error.message)
+      if (mode === 'register') {
+        localStorage.removeItem('pending_registration_data') // נקה במקרה של שגיאה
+      }
+    } else {
+      setSuccessMessage('נשלח אליך קישור קסום למייל! יש ללחוץ עליו כדי להשלים את הפעולה.')
     }
   }
 
+  const handleIdValidation = (id: string) => {
+    const cleanId = id.replace(/\D/g, '')
+    setIdNumber(cleanId)
+
+    if (cleanId.length === 0) {
+      setIdError(null)
+      return
+    }
+
+    if (cleanId.length !== 9) {
+      setIdError('ת.ז. חייבת להכיל 9 ספרות')
+      return
+    }
+
+    if (!validateIsraeliId(cleanId)) {
+      setIdError('מספר ת.ז. לא תקין')
+      return
+    }
+
+    setIdError(null)
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-orange to-orange-600 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        {/* Logo and Branding */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center bg-white rounded-full p-4 mb-4 shadow-xl">
-            <Bus className="w-12 h-12 text-primary-orange" />
-          </div>
-          <h1 className="text-4xl font-bold text-white mb-2">CashBus</h1>
-          <p className="text-white/90 text-lg">פיצוי אוטומטי על עיכובים בתחבורה</p>
+    <div className="min-h-screen bg-[#0A0F1E] flex flex-col items-center justify-center p-4" dir="rtl">
+      {/* לוגו עליון */}
+      <div className="mb-8 text-center animate-in fade-in zoom-in-95 duration-700">
+        <div className="inline-flex items-center justify-center w-20 h-20 bg-accent/10 rounded-full mb-4 border border-accent/20 shadow-[0_0_30px_rgba(217,119,6,0.2)]">
+          <Bus className="w-10 h-10 text-accent" />
         </div>
+        <h1 className="text-3xl font-bold text-white tracking-tight">CashBus</h1>
+        <p className="text-content-secondary mt-2">פיצוי אוטומטי על עיכובי תחבורה</p>
+      </div>
 
-        {/* Main Card */}
-        <div className="card bg-white shadow-2xl">
-          {/* Explanation Section */}
-          <div className="bg-orange-50 rounded-lg p-4 mb-6 border border-orange-200">
-            <h3 className="font-bold text-orange-900 mb-2">איך זה עובד?</h3>
-            <ul className="text-sm text-orange-800 space-y-1">
-              <li>✓ דווחו על עיכובים ואי הגעות בזמן אמת</li>
-              <li>✓ נאמת אוטומטית מול משרד התחבורה</li>
-              <li>✓ צברו תיקים וקבלו פיצוי של עד ₪11,000</li>
-              <li>✓ אנחנו נטפל בכל הבירוקרטיה</li>
-            </ul>
+      {/* כרטיס התחברות בסגנון Glassmorphism */}
+      <div className="w-full max-w-md bg-surface-raised/50 backdrop-blur-xl rounded-3xl p-8 border border-surface-border shadow-2xl shadow-black/50 animate-in fade-in zoom-in-95 duration-500">
+        {successMessage ? (
+          <div className="text-center">
+            <CheckCircle className="w-16 h-16 text-green-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">הקישור בדרך!</h2>
+            <p className="text-content-secondary text-sm">{successMessage}</p>
           </div>
-
-          {/* Toggle Login/Register */}
-          <div className="flex rounded-lg bg-gray-100 p-1 mb-6">
-            <button
-              onClick={() => setIsLogin(true)}
-              className={`flex-1 py-2 rounded-md font-medium transition-all ${
-                isLogin
-                  ? 'bg-white text-primary-orange shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              התחברות
-            </button>
-            <button
-              onClick={() => setIsLogin(false)}
-              className={`flex-1 py-2 rounded-md font-medium transition-all ${
-                !isLogin
-                  ? 'bg-white text-primary-orange shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              הרשמה
-            </button>
-          </div>
-
-          {/* Error/Success Messages */}
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <span className="text-sm">{error}</span>
+        ) : (
+          <>
+            <div className="flex border-b border-surface-border mb-6">
+              <button
+                onClick={() => setMode('login')}
+                className={`flex-1 pb-3 text-sm font-medium transition-colors ${mode === 'login' ? 'text-accent border-b-2 border-accent' : 'text-content-secondary hover:text-white'}`}
+              >
+                התחברות
+              </button>
+              <button
+                onClick={() => setMode('register')}
+                className={`flex-1 pb-3 text-sm font-medium transition-colors ${mode === 'register' ? 'text-accent border-b-2 border-accent' : 'text-content-secondary hover:text-white'}`}
+              >
+                הרשמה
+              </button>
             </div>
-          )}
 
-          {success && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-800">
-              <CheckCircle className="w-5 h-5 flex-shrink-0" />
-              <span className="text-sm">{success}</span>
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-white mb-2">
+                {mode === 'login' ? 'התחברות מהירה' : 'הרשמה לשירות'}
+              </h2>
+              <p className="text-content-tertiary text-sm">
+                {mode === 'login' ? 'הכנס מייל ונשלח לך קישור כניסה מיידי' : 'מלא את הפרטים והתחל לקבל פיצויים'}
+              </p>
             </div>
-          )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Full Name (Register only) */}
-            {!isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  שם מלא
-                </label>
-                <div className="relative">
-                  <User className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent outline-none transition-all"
-                    placeholder="הכנס שם מלא"
-                    required={!isLogin}
-                  />
-                </div>
-              </div>
-            )}
+            <form onSubmit={handleAuthAction} className="space-y-4">
+              {mode === 'register' && (
+                <>
+                  {/* Full Name */}
+                  <div className="relative">
+                    <User className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary" />
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="שם מלא"
+                      className="w-full bg-surface-base border border-surface-border text-white rounded-xl py-4 pr-12 pl-4 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/50 transition-all placeholder:text-content-tertiary/50"
+                      required
+                    />
+                  </div>
 
-            {/* Phone (Register only) */}
-            {!isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  מספר טלפון
-                </label>
-                <div className="relative">
-                  <Phone className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent outline-none transition-all"
-                    placeholder="05X-XXXXXXX"
-                    required={!isLogin}
-                  />
-                </div>
-              </div>
-            )}
+                  {/* Phone Number */}
+                  <div className="relative">
+                    <Phone className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary" />
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="מספר טלפון"
+                      className="w-full bg-surface-base border border-surface-border text-white rounded-xl py-4 pr-12 pl-4 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/50 transition-all placeholder:text-content-tertiary/50"
+                      required
+                    />
+                  </div>
+                </>
+              )}
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                דואר אלקטרוני
-              </label>
+              {/* Email */}
               <div className="relative">
-                <Mail className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent outline-none transition-all"
-                  placeholder="example@email.com"
+                  placeholder="your@email.com"
+                  className="w-full bg-surface-base border border-surface-border text-white rounded-xl py-4 pr-12 pl-4 outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/50 transition-all placeholder:text-content-tertiary/50"
                   required
-                  dir="ltr"
                 />
               </div>
-            </div>
 
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                סיסמה
-              </label>
-              <div className="relative">
-                <Lock className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent outline-none transition-all"
-                  placeholder="••••••••"
-                  required
-                  minLength={6}
-                  dir="ltr"
-                />
-              </div>
-              {!isLogin && (
-                <p className="text-xs text-gray-600 mt-1">לפחות 6 תווים</p>
-              )}
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? (
+              {mode === 'register' && (
                 <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>מעבד...</span>
+                  {/* ID Number */}
+                  <div className="relative">
+                    <CreditCard className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary" />
+                    <input
+                      type="text"
+                      value={idNumber}
+                      onChange={(e) => handleIdValidation(e.target.value)}
+                      placeholder="מספר תעודת זהות"
+                      className={`w-full bg-surface-base border text-white rounded-xl py-4 pr-12 pl-4 outline-none focus:ring-1 transition-all placeholder:text-content-tertiary/50 ${idError ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/50' : 'border-surface-border focus:border-accent/50 focus:ring-accent/50'}`}
+                      maxLength={9}
+                      required
+                    />
+                  </div>
+                  {idError && <p className="text-xs text-red-400 mt-1">{idError}</p>}
                 </>
-              ) : (
-                <span>{isLogin ? 'התחבר' : 'הרשם עכשיו'}</span>
               )}
-            </button>
-          </form>
 
-          {/* Footer Links */}
-          {isLogin && (
-            <div className="mt-4 text-center">
+              {error && (
+                <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 p-3 rounded-lg">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <button
-                onClick={() => setIsLogin(false)}
-                className="text-sm text-primary-orange hover:underline"
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-accent hover:bg-accent-light text-white font-bold py-4 rounded-xl shadow-lg shadow-accent/20 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                אין לך חשבון? הרשם עכשיו
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <span>{mode === 'login' ? 'שלח קישור התחברות' : 'צור חשבון ושלח קישור'}</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
               </button>
-            </div>
-          )}
-        </div>
+            </form>
+          </>
+        )}
 
-        {/* Benefits Section */}
-        <div className="mt-6 text-center">
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 text-white">
-            <p className="text-sm font-medium mb-2">למה CashBus?</p>
-            <div className="flex justify-center gap-6 text-xs">
-              <div>
-                <div className="font-bold text-lg">85%</div>
-                <div>שיעור הצלחה</div>
-              </div>
-              <div>
-                <div className="font-bold text-lg">₪3,200</div>
-                <div>פיצוי ממוצע</div>
-              </div>
-              <div>
-                <div className="font-bold text-lg">2,450</div>
-                <div>לקוחות מרוצים</div>
-              </div>
-            </div>
-          </div>
+        <div className="mt-8 pt-6 border-t border-surface-border text-center">
+          <p className="text-xs text-content-tertiary leading-relaxed">
+            {mode === 'login' ? 'אין לך חשבון? ' : 'כבר יש לך חשבון? '}
+            <span
+              onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+              className="text-accent font-semibold cursor-pointer hover:underline"
+            >
+              {mode === 'login' ? 'הירשם כאן' : 'התחבר כאן'}
+            </span>
+          </p>
+          <p className="text-xs text-content-tertiary leading-relaxed mt-4">
+            בהרשמה או התחברות, הנך מאשר/ת את <br />
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-accent cursor-pointer hover:underline">תנאי השימוש</a> ו
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-accent cursor-pointer hover:underline">מדיניות הפרטיות</a>
+          </p>
         </div>
+      </div>
 
-        {/* Legal Footer */}
-        <p className="text-center text-white/70 text-xs mt-6">
-          בהרשמה, אתה מאשר את{' '}
-          <a href="#" className="underline hover:text-white">
-            תנאי השימוש
-          </a>{' '}
-          ו
-          <a href="#" className="underline hover:text-white">
-            מדיניות הפרטיות
-          </a>
-        </p>
+      {/* סטטיסטיקה תחתונה עדינה */}
+      <div className="mt-12 grid grid-cols-3 gap-8 opacity-50 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+        <div className="text-center">
+          <div className="text-white font-bold">2,450+</div>
+          <div className="text-[10px] text-content-tertiary uppercase tracking-wider">נוסעים</div>
+        </div>
+        <div className="text-center">
+          <div className="text-white font-bold">85%</div>
+          <div className="text-[10px] text-content-tertiary uppercase tracking-wider">הצלחה</div>
+        </div>
+        <div className="text-center">
+          <div className="text-white font-bold">₪3,200</div>
+          <div className="text-[10px] text-content-tertiary uppercase tracking-wider">ממוצע</div>
+        </div>
       </div>
     </div>
   )

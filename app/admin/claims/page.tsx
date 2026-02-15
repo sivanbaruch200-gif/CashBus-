@@ -32,7 +32,7 @@ interface IncidentWithUser {
   damage_type?: string
   damage_amount?: number
   verified: boolean
-  status: 'submitted' | 'verified' | 'rejected' | 'claimed' | 'paid' // הוספתי paid
+  status: 'submitted' | 'verified' | 'rejected' | 'claimed' | 'paid' 
   created_at: string
   customer_name: string
   customer_phone: string
@@ -42,9 +42,9 @@ interface ClaimWithUser {
   id: string
   user_id: string
   incident_id: string
-  status: 'pending' | 'sent' | 'negotiation' | 'paid' | 'rejected' // השדה שהיה חסר
+  status: 'pending' | 'sent' | 'negotiation' | 'paid' | 'rejected' 
   claim_amount: number
-  bus_company: string // השדה שהיה חסר
+  bus_company: string 
   created_at: string
   customer_name: string
   customer_phone: string
@@ -65,7 +65,7 @@ export default function ClaimsManagementPage() {
 
   useEffect(() => {
     loadData()
-  }, [activeTab, statusFilter, companyFilter]) // הוספת הפילטרים כ-Dependencies
+  }, [activeTab, statusFilter, companyFilter])
 
   async function loadData() {
     setLoading(true)
@@ -119,7 +119,6 @@ export default function ClaimsManagementPage() {
     }
   }
 
-  // סינון מקומי לשדה החיפוש
   const filteredIncidents = incidents.filter(i => 
     i.customer_name.includes(searchQuery) || i.bus_line.includes(searchQuery)
   )
@@ -128,46 +127,45 @@ export default function ClaimsManagementPage() {
     c.customer_name.includes(searchQuery) || c.id.includes(searchQuery)
   )
 
-  // רשימת חברות ייחודיות לפילטר
   const companies = Array.from(new Set([...incidents.map(i => i.bus_company), ...claims.map(c => c.bus_company)]))
 
   return (
     <div className="p-8 max-w-7xl mx-auto rtl" dir="rtl">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">ניהול תיקים</h1>
+        <h1 className="text-3xl font-bold text-content-primary">ניהול תיקים</h1>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6 border-b">
+      {/* Tabs - Updated with accent colors */}
+      <div className="flex gap-4 mb-6 border-b border-surface-border">
         <button 
           onClick={() => setActiveTab('claims')}
-          className={`pb-2 px-4 ${activeTab === 'claims' ? 'border-b-2 border-orange-500 text-orange-600 font-bold' : 'text-gray-500'}`}
+          className={`pb-2 px-4 transition-colors ${activeTab === 'claims' ? 'border-b-2 border-accent text-accent font-bold' : 'text-content-tertiary hover:text-content-secondary'}`}
         >
           תביעות פעילות
         </button>
         <button 
           onClick={() => setActiveTab('incidents')}
-          className={`pb-2 px-4 ${activeTab === 'incidents' ? 'border-b-2 border-orange-500 text-orange-600 font-bold' : 'text-gray-500'}`}
+          className={`pb-2 px-4 transition-colors ${activeTab === 'incidents' ? 'border-b-2 border-accent text-accent font-bold' : 'text-content-tertiary hover:text-content-secondary'}`}
         >
           דיווחים חדשים
         </button>
       </div>
 
-      {/* Filters Bar */}
+      {/* Filters Bar - Updated with input-field and surface colors */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-content-tertiary w-4 h-4" />
           <input 
             type="text"
             placeholder="חיפוש לפי שם או מספר תיק..."
-            className="w-full pr-10 py-2 border rounded-lg"
+            className="input-field pr-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
         
         <select 
-          className="border rounded-lg px-3 py-2"
+          className="input-field"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
@@ -178,7 +176,7 @@ export default function ClaimsManagementPage() {
         </select>
 
         <select 
-          className="border rounded-lg px-3 py-2"
+          className="input-field"
           value={companyFilter}
           onChange={(e) => setCompanyFilter(e.target.value)}
         >
@@ -187,38 +185,40 @@ export default function ClaimsManagementPage() {
         </select>
       </div>
 
-      {/* Table Content */}
-      <div className="bg-white shadow rounded-xl overflow-hidden">
+      {/* Table Content - Updated to card and new tokens */}
+      <div className="card overflow-hidden !p-0">
         <table className="w-full text-right">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-surface-overlay border-b border-surface-border">
             <tr>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">לקוח</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">חברה/קו</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">סטטוס</th>
-              <th className="px-6 py-4 text-sm font-semibold text-gray-600">פעולות</th>
+              <th className="px-6 py-4 text-sm font-semibold text-content-secondary">לקוח</th>
+              <th className="px-6 py-4 text-sm font-semibold text-content-secondary">חברה/קו</th>
+              <th className="px-6 py-4 text-sm font-semibold text-content-secondary">סטטוס</th>
+              <th className="px-6 py-4 text-sm font-semibold text-content-secondary">פעולות</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={4} className="text-center py-10">טוען נתונים...</td></tr>
+              <tr><td colSpan={4} className="text-center py-10 text-content-tertiary">טוען נתונים...</td></tr>
+            ) : (activeTab === 'incidents' ? filteredIncidents : filteredClaims).length === 0 ? (
+              <tr><td colSpan={4} className="text-center py-10 text-content-tertiary">לא נמצאו תוצאות</td></tr>
             ) : (
               (activeTab === 'incidents' ? filteredIncidents : filteredClaims).map((item) => (
-                <tr key={item.id} className="border-b hover:bg-gray-50 transition-colors">
+                <tr key={item.id} className="border-b border-surface-border hover:bg-surface-overlay transition-colors">
                   <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900">{item.customer_name}</div>
-                    <div className="text-xs text-gray-500">{item.customer_phone}</div>
+                    <div className="font-medium text-content-primary">{item.customer_name}</div>
+                    <div className="text-xs text-content-tertiary">{item.customer_phone}</div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-sm font-semibold text-gray-800">{item.bus_company}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-sm font-semibold text-content-secondary">{item.bus_company}</div>
+                    <div className="text-xs text-content-tertiary">
                       {activeTab === 'incidents' ? `קו ${(item as IncidentWithUser).bus_line}` : 'תיק תביעה'}
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      item.status === 'paid' ? 'bg-green-100 text-green-700' : 
-                      item.status === 'pending' || item.status === 'submitted' ? 'bg-yellow-100 text-yellow-700' : 
-                      'bg-blue-100 text-blue-700'
+                      item.status === 'paid' ? 'status-badge-approved' : 
+                      item.status === 'pending' || item.status === 'submitted' ? 'status-badge-pending' : 
+                      'status-badge-legal'
                     }`}>
                       {item.status}
                     </span>
@@ -226,7 +226,7 @@ export default function ClaimsManagementPage() {
                   <td className="px-6 py-4">
                     <button 
                       onClick={() => router.push(`/admin/claims/${item.id}`)}
-                      className="flex items-center gap-1 text-orange-600 hover:text-orange-700 font-medium"
+                      className="flex items-center gap-1 text-accent hover:text-accent-light font-medium transition-colors"
                     >
                       <Eye className="w-4 h-4" /> ניהול
                     </button>

@@ -7,8 +7,6 @@ serve(async (req) => {
   try {
     // בדיקה ישירה של השרת הקהילתי
     const testUrl = "https://172.67.181.181/siri/stop/14917"
-    console.log("Starting test fetch to:", testUrl)
-    
     const resp = await fetch(testUrl, {
       headers: { "Host": "bus.israel-it.org" }
     })
@@ -16,10 +14,6 @@ serve(async (req) => {
     const status = resp.status
     const text = await resp.text()
     
-    // זה ידפיס ללוגים בדיוק מה חזר מהשרת הישראלי
-    console.log(`Response Status: ${status}`)
-    console.log(`Raw Data Preview: ${text.substring(0, 200)}`)
-
     return new Response(JSON.stringify({ 
       status: status, 
       preview: text.substring(0, 200),

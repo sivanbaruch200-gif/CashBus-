@@ -1,46 +1,68 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSession } from '@/lib/supabase'
-import { Bus } from 'lucide-react'
+import CyberLanding from '@/components/CyberLanding'
 
 export default function Home() {
   const router = useRouter()
+  const [authTarget, setAuthTarget] = useState<string | null>(null)
+  const [isReturningUser, setIsReturningUser] = useState(false)
+  const [showLanding, setShowLanding] = useState(true)
 
+  // Check auth in parallel with animation
   useEffect(() => {
-    async function checkAuthAndRedirect() {
+    // Check if returning user
+    const hasSeenIntro = localStorage.getItem('cashbus_intro_seen')
+    if (hasSeenIntro) {
+      setIsReturningUser(true)
+    }
+
+    async function checkAuth() {
       try {
         const session = await getSession()
-
-        if (session) {
-          // User is logged in - go to main dashboard
-          router.push('/dashboard')
-        } else {
-          // User is not logged in - go to auth
-          router.push('/auth')
-        }
+        setAuthTarget(session ? '/dashboard' : '/auth')
       } catch (error) {
         console.error('Error checking auth:', error)
-        // On error, default to auth page
-        router.push('/auth')
+        setAuthTarget('/auth')
       }
     }
 
-    checkAuthAndRedirect()
-  }, [router])
+    checkAuth()
+  }, [])
 
-  // Loading state while checking authentication
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex items-center justify-center">
-      <div className="text-center">
-        <div className="inline-flex items-center justify-center bg-primary-orange rounded-full p-6 mb-4 shadow-xl">
-          <Bus className="w-16 h-16 text-white" />
-        </div>
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">CashBus</h1>
-        <p className="text-gray-600 mb-8">פיצוי אוטומטי על עיכובים בתחבורה</p>
-        <div className="w-16 h-16 border-4 border-primary-orange border-t-transparent rounded-full animate-spin mx-auto" />
+  const handleLandingComplete = useCallback(() => {
+    // Mark as seen for next visit
+    localStorage.setItem('cashbus_intro_seen', 'true')
+    setShowLanding(false)
+
+    // If auth check is done, redirect immediately
+    if (authTarget) {
+      router.push(authTarget)
+    }
+  }, [authTarget, router])
+
+  // If landing is done but auth wasn't ready yet, redirect when it is
+  useEffect(() => {
+    if (!showLanding && authTarget) {
+      router.push(authTarget)
+    }
+  }, [showLanding, authTarget, router])
+
+  if (!showLanding) {
+    // Waiting for auth check to complete
+    return (
+      <div className="min-h-screen bg-surface-base flex items-center justify-center">
+        <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin" />
       </div>
-    </div>
+    )
+  }
+
+  return (
+    <CyberLanding
+      onComplete={handleLandingComplete}
+      isReturningUser={isReturningUser}
+    />
   )
 }

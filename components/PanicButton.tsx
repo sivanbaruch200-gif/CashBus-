@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { AlertCircle, Clock, MapPin, Bus, Camera, Upload, CheckCircle, ArrowRight, Banknote, XCircle, AlertTriangle, Shield, Satellite, Database, Loader2 } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { AlertCircle, Clock, MapPin, Bus, Camera, Upload, CheckCircle, ArrowRight, Banknote, XCircle, AlertTriangle, Shield, Satellite, Database, Loader2, Users } from 'lucide-react'
 import { calculateCompensation, type CompensationParams, type CompensationResult } from '@/lib/compensation'
 import CompensationCalculator from './CompensationCalculator'
 import { reverseGeocode, formatCoordinatesAsFallback } from '@/lib/geocodingService'
+import { getCurrentUserConsentStatus } from '@/lib/supabase'
 
 interface PanicButtonProps {
   onPress: () => void
@@ -124,6 +125,40 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
   const [compensation, setCompensation] = useState<number>(0)
 
+  // Minor consent status
+  const [consentStatus, setConsentStatus] = useState<{
+    isMinor: boolean
+    hasConsent: boolean
+    pendingConsent: boolean
+    loading: boolean
+  }>({
+    isMinor: false,
+    hasConsent: false,
+    pendingConsent: false,
+    loading: true,
+  })
+  const [showMinorBlockModal, setShowMinorBlockModal] = useState(false)
+
+  // Check consent status on mount
+  useEffect(() => {
+    checkConsentStatus()
+  }, [])
+
+  const checkConsentStatus = async () => {
+    try {
+      const status = await getCurrentUserConsentStatus()
+      setConsentStatus({
+        isMinor: status.isMinor,
+        hasConsent: status.hasConsent,
+        pendingConsent: !!status.pendingConsent,
+        loading: false,
+      })
+    } catch (err) {
+      console.error('Error checking consent status:', err)
+      setConsentStatus(prev => ({ ...prev, loading: false }))
+    }
+  }
+
   // Get GPS error message in Hebrew
   const getGpsErrorMessage = (errorType: GpsErrorType): string => {
     switch (errorType) {
@@ -171,9 +206,6 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       return
     }
 
-    console.log(`[GPS Lock] Finalized with ${samples.length} samples. Best accuracy: ${bestSample.accuracy}m`)
-    console.log('[GPS Lock] All samples:', samples.map(s => `${s.accuracy.toFixed(1)}m`).join(', '))
-
     setGpsLocation({
       lat: bestSample.lat,
       lng: bestSample.lng,
@@ -201,6 +233,12 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
   // Step 1: Panic button press - Start GPS Lock with multiple samples
   const handlePanicPress = async () => {
+    // Check if minor without consent
+    if (consentStatus.isMinor && !consentStatus.hasConsent) {
+      setShowMinorBlockModal(true)
+      return
+    }
+
     setIsLocating(true)
     setGpsError(null)
     setValidationError(null)
@@ -222,13 +260,9 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
     // Set overall timeout for GPS lock
     lockTimeoutRef.current = setTimeout(() => {
-      console.log(`[GPS Lock] Timeout reached. Collected ${collectedSamples.length} samples.`)
-
       if (collectedSamples.length >= GPS_LOCK_CONFIG.minSamples) {
         finalizeGpsLock(collectedSamples)
       } else if (collectedSamples.length > 0) {
-        // If we have at least 1 sample, use it
-        console.log('[GPS Lock] Using partial samples due to timeout')
         finalizeGpsLock(collectedSamples)
       } else {
         cleanupGpsLock()
@@ -254,18 +288,14 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         setGpsSamples(collectedSamples)
         setGpsLockProgress(Math.round((collectedSamples.length / GPS_LOCK_CONFIG.maxSamples) * 100))
 
-        console.log(`[GPS Lock] Sample ${collectedSamples.length}: accuracy=${accuracy.toFixed(1)}m`)
-
         // Check if we achieved target accuracy with minimum samples
         if (accuracy <= GPS_LOCK_CONFIG.targetAccuracy && collectedSamples.length >= GPS_LOCK_CONFIG.minSamples) {
-          console.log(`[GPS Lock] Target accuracy achieved (${accuracy}m <= ${GPS_LOCK_CONFIG.targetAccuracy}m)`)
           finalizeGpsLock(collectedSamples)
           return
         }
 
         // Check if we have collected maximum samples
         if (collectedSamples.length >= GPS_LOCK_CONFIG.maxSamples) {
-          console.log(`[GPS Lock] Maximum samples reached (${GPS_LOCK_CONFIG.maxSamples})`)
           finalizeGpsLock(collectedSamples)
           return
         }
@@ -654,7 +684,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         </button>
 
         <div className="mt-6 text-center">
-          <p className="text-gray-600 text-sm max-w-xs">
+          <p className="text-content-secondary text-sm max-w-xs">
             לחצו על הכפתור כאשר האוטובוס לא מגיע או לא עוצר בתחנה
           </p>
         </div>
@@ -669,38 +699,38 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     if (gpsError) {
       return (
         <div className="flex flex-col items-center py-8 max-w-sm mx-auto">
-          <div className="w-32 h-32 bg-red-100 rounded-full flex items-center justify-center mb-6">
+          <div className="w-32 h-32 bg-status-rejected-surface rounded-full flex items-center justify-center mb-6">
             {gpsError === 'permission_denied' ? (
-              <XCircle className="w-16 h-16 text-red-500" />
+              <XCircle className="w-16 h-16 text-status-rejected" />
             ) : (
               <AlertTriangle className="w-16 h-16 text-amber-500" />
             )}
           </div>
 
-          <h3 className="text-xl font-bold text-gray-900 mb-3 text-center">
+          <h3 className="text-xl font-bold text-content-primary mb-3 text-center">
             {gpsError === 'permission_denied' ? 'הרשאת מיקום נדחתה' : 'שגיאה באיתור מיקום'}
           </h3>
 
-          <p className="text-sm text-gray-600 text-center mb-6 px-4">
+          <p className="text-sm text-content-secondary text-center mb-6 px-4">
             {getGpsErrorMessage(gpsError)}
           </p>
 
           {gpsError === 'permission_denied' && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 text-sm text-blue-800 text-right">
-              <p className="font-medium mb-2">כיצד לאפשר מיקום:</p>
-              <ul className="list-disc list-inside space-y-1 text-xs">
-                <li>Chrome: לחצו על סמל המנעול → הרשאות → מיקום → אפשר</li>
-                <li>Safari: הגדרות → פרטיות → שירותי מיקום</li>
-                <li>Firefox: לחצו על סמל המגן → הרשאות → מיקום</li>
+            <div className="bg-accent-surface border border-accent-border rounded-lg p-4 mb-6 text-sm text-content-secondary text-right">
+              <p className="font-medium text-content-primary mb-2">כיצד לאפשר מיקום:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Chrome: לחצו על סמל המנעול &rarr; הרשאות &rarr; מיקום &rarr; אפשר</li>
+                <li>Safari: הגדרות &rarr; פרטיות &rarr; שירותי מיקום</li>
+                <li>Firefox: לחצו על סמל המגן &rarr; הרשאות &rarr; מיקום</li>
               </ul>
             </div>
           )}
 
           <div className="flex gap-3 w-full">
-            <button onClick={handleGpsCancel} className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
+            <button onClick={handleGpsCancel} className="btn-secondary flex-1 py-3 px-4">
               ביטול
             </button>
-            <button onClick={handleRetryGps} className="flex-1 py-3 px-4 bg-primary-orange hover:bg-orange-600 text-white font-medium rounded-lg transition-colors">
+            <button onClick={handleRetryGps} className="btn-primary flex-1 py-3 px-4">
               נסה שוב
             </button>
           </div>
@@ -711,12 +741,12 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     return (
       <div className="flex flex-col items-center py-8 max-w-sm mx-auto">
         {/* GPS Lock Progress Circle */}
-        <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 relative ${gpsLocation ? 'bg-green-100' : 'bg-primary-orange bg-opacity-10'}`}>
+        <div className={`w-32 h-32 rounded-full flex items-center justify-center mb-6 relative ${gpsLocation ? 'bg-status-approved-surface' : 'bg-accent-surface'}`}>
           {gpsLocation ? (
-            <CheckCircle className="w-16 h-16 text-green-600" />
+            <CheckCircle className="w-16 h-16 text-status-approved" />
           ) : (
             <>
-              <Satellite className="w-16 h-16 text-primary-orange animate-pulse" />
+              <Satellite className="w-16 h-16 text-accent animate-pulse" />
               {/* Progress ring */}
               <svg className="absolute inset-0 w-full h-full -rotate-90">
                 <circle
@@ -724,7 +754,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                   cy="64"
                   r="58"
                   fill="none"
-                  stroke="#e5e7eb"
+                  stroke="#27272A"
                   strokeWidth="4"
                 />
                 <circle
@@ -732,7 +762,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                   cy="64"
                   r="58"
                   fill="none"
-                  stroke="#FF8C00"
+                  stroke="#D97706"
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeDasharray={`${2 * Math.PI * 58}`}
@@ -744,21 +774,21 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           )}
         </div>
 
-        <h3 className="text-xl font-bold text-gray-900 mb-2">
+        <h3 className="text-xl font-bold text-content-primary mb-2">
           {isLocating ? 'נועל GPS לדיוק מקסימלי...' : 'מיקום נקלט!'}
         </h3>
 
         {/* GPS Lock Progress Info */}
         {isLocating && gpsSamples.length > 0 && (
           <div className="w-full space-y-3 mb-4">
-            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+            <div className="bg-accent-surface rounded-lg p-4 border border-accent-border">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-blue-900">איסוף דגימות GPS</span>
-                <span className="text-sm font-mono text-blue-700">{gpsSamples.length}/{GPS_LOCK_CONFIG.maxSamples}</span>
+                <span className="text-sm font-medium text-content-primary">איסוף דגימות GPS</span>
+                <span className="text-sm font-mono text-accent-light">{gpsSamples.length}/{GPS_LOCK_CONFIG.maxSamples}</span>
               </div>
-              <div className="w-full bg-blue-200 rounded-full h-2 mb-3">
+              <div className="w-full bg-surface-border rounded-full h-2 mb-3">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-accent h-2 rounded-full transition-all duration-300"
                   style={{ width: `${gpsLockProgress}%` }}
                 />
               </div>
@@ -768,9 +798,9 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                   <span
                     key={i}
                     className={`text-xs px-2 py-0.5 rounded-full font-mono ${
-                      sample.accuracy <= 10 ? 'bg-green-100 text-green-700' :
-                      sample.accuracy <= 30 ? 'bg-amber-100 text-amber-700' :
-                      'bg-red-100 text-red-700'
+                      sample.accuracy <= 10 ? 'bg-status-approved-surface text-status-approved' :
+                      sample.accuracy <= 30 ? 'bg-status-pending-surface text-status-pending' :
+                      'bg-status-rejected-surface text-status-rejected'
                     }`}
                   >
                     {Math.round(sample.accuracy)}m
@@ -778,12 +808,12 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                 ))}
               </div>
               {gpsSamples.length > 0 && (
-                <p className="text-xs text-blue-700 mt-2">
+                <p className="text-xs text-content-secondary mt-2">
                   הדגימה הטובה ביותר עד כה: <span className="font-bold">{Math.round(Math.min(...gpsSamples.map(s => s.accuracy)))} מטר</span>
                 </p>
               )}
             </div>
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-content-tertiary text-center">
               ממתין לדיוק של {GPS_LOCK_CONFIG.targetAccuracy} מטר או פחות...
             </p>
           </div>
@@ -791,39 +821,39 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
         {gpsLocation && (
           <div className="space-y-3 mb-4 w-full">
-            {/* GPS Data Display - Transparent */}
-            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+            {/* GPS Data Display */}
+            <div className="bg-status-approved-surface rounded-lg p-4 border border-status-approved/20">
               <div className="flex items-center gap-2 mb-3">
-                <Satellite className="w-4 h-4 text-green-600" />
-                <span className="text-sm font-medium text-green-800">נעילת GPS הושלמה!</span>
-                <CheckCircle className="w-4 h-4 text-green-500 mr-auto" />
+                <Satellite className="w-4 h-4 text-status-approved" />
+                <span className="text-sm font-medium text-content-primary">נעילת GPS הושלמה!</span>
+                <CheckCircle className="w-4 h-4 text-status-approved mr-auto" />
               </div>
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-green-700">דיוק סופי:</span>
-                  <span className={`font-mono font-bold ${gpsLocation.accuracy <= 10 ? 'text-green-600' : gpsLocation.accuracy <= 30 ? 'text-amber-600' : 'text-red-600'}`}>
+                  <span className="text-content-secondary">דיוק סופי:</span>
+                  <span className={`font-mono font-bold ${gpsLocation.accuracy <= 10 ? 'text-status-approved' : gpsLocation.accuracy <= 30 ? 'text-status-pending' : 'text-status-rejected'}`}>
                     {Math.round(gpsLocation.accuracy)} מטר
                     {gpsLocation.accuracy <= 10 ? ' (מעולה)' : gpsLocation.accuracy <= 30 ? ' (טוב)' : ' (סביר)'}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-green-700">דגימות שנאספו:</span>
-                  <span className="font-mono text-green-800">{gpsSamples.length}</span>
+                  <span className="text-content-secondary">דגימות שנאספו:</span>
+                  <span className="font-mono text-content-primary">{gpsSamples.length}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-green-700">חותמת זמן:</span>
-                  <span className="font-mono text-green-800">{formatTimestamp(gpsLocation.timestamp)}</span>
+                  <span className="text-content-secondary">חותמת זמן:</span>
+                  <span className="font-mono text-content-primary">{formatTimestamp(gpsLocation.timestamp)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-green-700">קואורדינטות:</span>
-                  <span className="font-mono text-green-800 text-[10px]">
+                  <span className="text-content-secondary">קואורדינטות:</span>
+                  <span className="font-mono text-content-primary text-[10px]">
                     {gpsLocation.lat.toFixed(6)}, {gpsLocation.lng.toFixed(6)}
                   </span>
                 </div>
               </div>
             </div>
 
-            <p className="text-xs text-gray-500 text-center">
+            <p className="text-xs text-content-tertiary text-center">
               מעבר לאימות תחנה...
             </p>
           </div>
@@ -831,9 +861,9 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
         {isLocating && gpsSamples.length === 0 && (
           <div className="mt-4 flex items-center gap-2">
-            <div className="w-2 h-2 bg-primary-orange rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <div className="w-2 h-2 bg-primary-orange rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-            <div className="w-2 h-2 bg-primary-orange rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="w-2 h-2 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
         )}
       </div>
@@ -846,24 +876,24 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
   if (step === 'station-validation') {
     return (
       <div className="flex flex-col items-center py-6 max-w-md mx-auto">
-        <h3 className="text-xl font-bold text-gray-900 mb-6">אימות מיקום דיגיטלי</h3>
+        <h3 className="text-xl font-bold text-content-primary mb-6">אימות מיקום דיגיטלי</h3>
 
         {/* GPS Data Card */}
         {gpsLocation && (
-          <div className="w-full bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <div className="w-full bg-accent-surface border border-accent-border rounded-lg p-4 mb-4">
             <div className="flex items-center gap-2 mb-3">
-              <Satellite className="w-5 h-5 text-blue-600" />
-              <span className="font-medium text-blue-900">נתוני GPS</span>
-              <CheckCircle className="w-4 h-4 text-green-500 mr-auto" />
+              <Satellite className="w-5 h-5 text-accent" />
+              <span className="font-medium text-content-primary">נתוני GPS</span>
+              <CheckCircle className="w-4 h-4 text-status-approved mr-auto" />
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
-                <span className="text-blue-700">דיוק:</span>
-                <span className="font-mono font-bold text-blue-900 mr-2">{Math.round(gpsLocation.accuracy)}m</span>
+                <span className="text-content-secondary">דיוק:</span>
+                <span className="font-mono font-bold text-content-primary mr-2">{Math.round(gpsLocation.accuracy)}m</span>
               </div>
               <div>
-                <span className="text-blue-700">זמן:</span>
-                <span className="font-mono text-blue-900 mr-2">{formatTimestamp(gpsLocation.timestamp)}</span>
+                <span className="text-content-secondary">זמן:</span>
+                <span className="font-mono text-content-primary mr-2">{formatTimestamp(gpsLocation.timestamp)}</span>
               </div>
             </div>
           </div>
@@ -871,31 +901,31 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
         {/* Station Validation Card */}
         <div className={`w-full rounded-lg p-4 mb-4 border ${
-          validationStatus === 'validating_location' ? 'bg-yellow-50 border-yellow-200' :
-          stationValidation?.validated ? 'bg-green-50 border-green-200' :
-          validationStatus === 'error' ? 'bg-red-50 border-red-200' :
-          'bg-gray-50 border-gray-200'
+          validationStatus === 'validating_location' ? 'bg-status-pending-surface border-status-pending/20' :
+          stationValidation?.validated ? 'bg-status-approved-surface border-status-approved/20' :
+          validationStatus === 'error' ? 'bg-status-rejected-surface border-status-rejected/20' :
+          'bg-surface-overlay border-surface-border'
         }`}>
           <div className="flex items-center gap-2 mb-3">
-            <Database className="w-5 h-5 text-gray-600" />
-            <span className="font-medium text-gray-900">אימות תחנה (GTFS)</span>
-            {validationStatus === 'validating_location' && <Loader2 className="w-4 h-4 animate-spin text-yellow-600 mr-auto" />}
-            {stationValidation?.validated && <CheckCircle className="w-4 h-4 text-green-500 mr-auto" />}
-            {validationStatus === 'error' && <XCircle className="w-4 h-4 text-red-500 mr-auto" />}
+            <Database className="w-5 h-5 text-content-secondary" />
+            <span className="font-medium text-content-primary">אימות תחנה (GTFS)</span>
+            {validationStatus === 'validating_location' && <Loader2 className="w-4 h-4 animate-spin text-status-pending mr-auto" />}
+            {stationValidation?.validated && <CheckCircle className="w-4 h-4 text-status-approved mr-auto" />}
+            {validationStatus === 'error' && <XCircle className="w-4 h-4 text-status-rejected mr-auto" />}
           </div>
 
           {validationStatus === 'validating_location' && (
-            <p className="text-sm text-yellow-800">מאמת מיקום מול מאגר התחנות של משרד התחבורה...</p>
+            <p className="text-sm text-status-pending">מאמת מיקום מול מאגר התחנות של משרד התחבורה...</p>
           )}
 
           {stationValidation?.validated && (
             <div className="space-y-2">
               {stationValidation.station ? (
                 <>
-                  <p className="text-green-800 font-medium">
+                  <p className="text-status-approved font-medium">
                     מיקום אומת: תחנת {stationValidation.station.name}
                   </p>
-                  <div className="text-xs text-green-700 space-y-1">
+                  <div className="text-xs text-content-secondary space-y-1">
                     <div>קוד תחנה: <span className="font-mono">{stationValidation.station.stopCode}</span></div>
                     <div>מרחק: <span className="font-mono">{stationValidation.station.distance}m</span></div>
                     <div>מקור: <span className="font-mono">GTFS - משרד התחבורה</span></div>
@@ -903,13 +933,13 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                 </>
               ) : (
                 <>
-                  <p className="text-green-800 font-medium">
+                  <p className="text-status-approved font-medium">
                     {stationValidation.message}
                   </p>
-                  <div className="text-xs text-green-700 space-y-1">
+                  <div className="text-xs text-content-secondary space-y-1">
                     <div>מקור: <span className="font-mono">{stationValidation.dataSource}</span></div>
-                    <div className="text-amber-600 mt-1">
-                      ℹ️ נתוני GTFS לא זמינים - משתמשים במיקום מילולי
+                    <div className="text-status-pending mt-1">
+                      נתוני GTFS לא זמינים - משתמשים במיקום מילולי
                     </div>
                   </div>
                 </>
@@ -919,9 +949,9 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
           {validationStatus === 'error' && (
             <div className="space-y-2">
-              <p className="text-red-800 font-medium">{validationError}</p>
+              <p className="text-status-rejected font-medium">{validationError}</p>
               {stationValidation?.station && (
-                <p className="text-xs text-red-700">
+                <p className="text-xs text-content-secondary">
                   התחנה הקרובה ביותר: {stationValidation.station.name} ({stationValidation.station.distance}m)
                 </p>
               )}
@@ -933,14 +963,14 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         <div className="flex gap-3 w-full mt-4">
           <button
             onClick={handleGpsCancel}
-            className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+            className="btn-secondary flex-1 py-3 px-4"
           >
             ביטול
           </button>
           {stationValidation?.validated && (
             <button
               onClick={handleProceedToForm}
-              className="flex-1 py-3 px-4 bg-primary-orange hover:bg-orange-600 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="btn-primary flex-1 py-3 px-4 flex items-center justify-center gap-2"
             >
               <span>המשך לדיווח</span>
               <ArrowRight className="w-5 h-5" />
@@ -949,7 +979,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           {validationStatus === 'error' && (
             <button
               onClick={handleRetryGps}
-              className="flex-1 py-3 px-4 bg-primary-orange hover:bg-orange-600 text-white font-medium rounded-lg transition-colors"
+              className="btn-primary flex-1 py-3 px-4"
             >
               נסה שוב
             </button>
@@ -957,7 +987,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         </div>
 
         {/* Evidence Chain Notice */}
-        <div className="mt-6 flex items-start gap-2 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
+        <div className="mt-6 flex items-start gap-2 text-xs text-content-tertiary bg-surface-overlay rounded-lg p-3">
           <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <p>
             הנתונים מבוססים אך ורק על מידע גולמי מה-GPS ומאגר התחנות הרשמי של משרד התחבורה.
@@ -973,11 +1003,11 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
   // ==========================================
   return (
     <div className="w-full max-w-2xl mx-auto">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="card p-6">
         {/* Header with Station Info */}
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-gray-900">פרטי האירוע</h3>
-          <div className="flex items-center gap-2 text-green-600 text-sm">
+          <h3 className="text-xl font-bold text-content-primary">פרטי האירוע</h3>
+          <div className="flex items-center gap-2 text-status-approved text-sm">
             <CheckCircle className="w-4 h-4" />
             <span>מיקום מאומת</span>
           </div>
@@ -985,18 +1015,18 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
         {/* Station Badge */}
         {stationValidation?.validated && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6">
+          <div className="bg-status-approved-surface border border-status-approved/20 rounded-lg p-3 mb-6">
             <div className="flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-green-600" />
+              <MapPin className="w-5 h-5 text-status-approved" />
               {stationValidation.station ? (
                 <>
-                  <span className="font-medium text-green-800">תחנת {stationValidation.station.name}</span>
-                  <span className="text-xs text-green-600 mr-auto">({stationValidation.station.distance}m)</span>
+                  <span className="font-medium text-content-primary">תחנת {stationValidation.station.name}</span>
+                  <span className="text-xs text-content-secondary mr-auto">({stationValidation.station.distance}m)</span>
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-green-800">{formData.osmAddress || 'מיקום מאומת'}</span>
-                  <span className="text-xs text-amber-600 mr-auto">(OSM)</span>
+                  <span className="font-medium text-content-primary">{formData.osmAddress || 'מיקום מאומת'}</span>
+                  <span className="text-xs text-status-pending mr-auto">(OSM)</span>
                 </>
               )}
             </div>
@@ -1007,30 +1037,30 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         <div className="space-y-5">
           {/* Bus Line */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              מספר קו <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-content-secondary mb-2">
+              מספר קו <span className="text-status-rejected">*</span>
             </label>
             <div className="relative">
-              <Bus className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Bus className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-tertiary" />
               <input
                 type="text"
                 value={formData.busLine || ''}
                 onChange={(e) => handleInputChange('busLine', e.target.value)}
                 placeholder="לדוגמה: 12, 480, 405"
-                className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent text-right"
+                className="input-field pr-10"
               />
             </div>
           </div>
 
           {/* Bus Company */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              חברת האוטובוסים <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-content-secondary mb-2">
+              חברת האוטובוסים <span className="text-status-rejected">*</span>
             </label>
             <select
               value={formData.busCompany || ''}
               onChange={(e) => handleInputChange('busCompany', e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-primary-orange transition-all text-right appearance-none bg-white cursor-pointer hover:border-gray-400"
+              className="input-field cursor-pointer"
             >
               <option value="" disabled>בחר חברת אוטובוסים</option>
               <option value="egged">אגד</option>
@@ -1051,22 +1081,22 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           {/* SIRI Validation Result */}
           {siriValidation && (
             <div className={`rounded-lg p-4 border ${
-              siriValidation.color === 'green' ? 'bg-green-50 border-green-200' :
-              siriValidation.color === 'orange' ? 'bg-orange-50 border-orange-200' :
-              'bg-gray-50 border-gray-200'
+              siriValidation.color === 'green' ? 'bg-status-approved-surface border-status-approved/20' :
+              siriValidation.color === 'orange' ? 'bg-accent-surface border-accent-border' :
+              'bg-surface-overlay border-surface-border'
             }`}>
               <div className="flex items-center gap-2 mb-2">
-                <Bus className={`w-5 h-5 ${siriValidation.color === 'green' ? 'text-green-600' : siriValidation.color === 'orange' ? 'text-orange-600' : 'text-gray-600'}`} />
-                <span className={`font-medium ${siriValidation.color === 'green' ? 'text-green-800' : siriValidation.color === 'orange' ? 'text-orange-800' : 'text-gray-800'}`}>
+                <Bus className={`w-5 h-5 ${siriValidation.color === 'green' ? 'text-status-approved' : siriValidation.color === 'orange' ? 'text-accent' : 'text-content-secondary'}`} />
+                <span className="font-medium text-content-primary">
                   אימות SIRI בזמן אמת
                 </span>
                 {validationStatus === 'validating_siri' && <Loader2 className="w-4 h-4 animate-spin mr-auto" />}
               </div>
-              <p className={`text-sm ${siriValidation.color === 'green' ? 'text-green-700' : siriValidation.color === 'orange' ? 'text-orange-700' : 'text-gray-700'}`}>
+              <p className={`text-sm ${siriValidation.color === 'green' ? 'text-status-approved' : siriValidation.color === 'orange' ? 'text-accent-light' : 'text-content-secondary'}`}>
                 {siriValidation.message}
               </p>
               {siriValidation.apiResponseTime && (
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-content-tertiary mt-1">
                   זמן תגובת API: {siriValidation.apiResponseTime}
                 </p>
               )}
@@ -1075,8 +1105,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
           {/* Incident Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              סוג התקלה <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-content-secondary mb-2">
+              סוג התקלה <span className="text-status-rejected">*</span>
             </label>
             <div className="grid grid-cols-3 gap-3">
               {['no_arrival', 'no_stop', 'delay'].map((type) => (
@@ -1086,8 +1116,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                   onClick={() => handleInputChange('incidentType', type)}
                   className={`py-3 px-4 rounded-lg border-2 transition-all ${
                     formData.incidentType === type
-                      ? 'border-primary-orange bg-orange-50 text-primary-orange font-semibold'
-                      : 'border-gray-300 hover:border-gray-400'
+                      ? 'border-accent bg-accent-surface text-accent font-semibold'
+                      : 'border-surface-border hover:border-surface-border-light text-content-secondary'
                   }`}
                 >
                   {type === 'no_arrival' ? 'לא הגיע' : type === 'no_stop' ? 'לא עצר' : 'עיכוב'}
@@ -1099,25 +1129,25 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           {/* Delay Minutes */}
           {formData.incidentType === 'delay' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">זמן עיכוב (בדקות)</label>
+              <label className="block text-sm font-medium text-content-secondary mb-2">זמן עיכוב (בדקות)</label>
               <input
                 type="number"
                 value={formData.delayMinutes || ''}
                 onChange={(e) => handleInputChange('delayMinutes', parseInt(e.target.value) || 0)}
                 placeholder="20"
                 min="0"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent text-right"
+                className="input-field"
               />
             </div>
           )}
 
           {/* Damage Type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">נזק נוסף שנגרם (אופציונלי)</label>
+            <label className="block text-sm font-medium text-content-secondary mb-2">נזק נוסף שנגרם (אופציונלי)</label>
             <select
               value={formData.damageType || ''}
               onChange={(e) => handleInputChange('damageType', e.target.value || undefined)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent text-right"
+              className="input-field"
             >
               <option value="">ללא נזק נוסף</option>
               <option value="taxi_cost">הוצאות מונית</option>
@@ -1131,14 +1161,14 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           {/* Damage Amount */}
           {formData.damageType && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">סכום הנזק (₪)</label>
+              <label className="block text-sm font-medium text-content-secondary mb-2">סכום הנזק (₪)</label>
               <input
                 type="number"
                 value={formData.damageAmount || ''}
                 onChange={(e) => handleInputChange('damageAmount', parseFloat(e.target.value) || 0)}
                 placeholder="0"
                 min="0"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-orange focus:border-transparent text-right"
+                className="input-field"
               />
             </div>
           )}
@@ -1146,13 +1176,13 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           {/* Receipt Upload - Show when damage type is selected (especially for taxi_cost) */}
           {formData.damageType && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-content-secondary mb-2">
                 העלאת קבלה {formData.damageType === 'taxi_cost' ? '(חובה למונית)' : '(אופציונלי)'}
               </label>
               <div className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
                 formData.receiptFile
-                  ? 'border-green-300 bg-green-50'
-                  : 'border-gray-300 hover:border-primary-orange'
+                  ? 'border-status-approved/30 bg-status-approved-surface'
+                  : 'border-surface-border hover:border-accent'
               }`}>
                 <input
                   type="file"
@@ -1169,24 +1199,24 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                 {formData.receiptFile ? (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      <span className="text-sm text-green-700 font-medium truncate max-w-[200px]">
+                      <CheckCircle className="w-5 h-5 text-status-approved" />
+                      <span className="text-sm text-status-approved font-medium truncate max-w-[200px]">
                         {formData.receiptFile.name}
                       </span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setFormData(prev => ({ ...prev, receiptFile: undefined }))}
-                      className="text-sm text-red-600 hover:text-red-700"
+                      className="text-sm text-status-rejected hover:text-status-rejected/80"
                     >
                       הסר
                     </button>
                   </div>
                 ) : (
                   <label htmlFor="receipt-upload" className="cursor-pointer block">
-                    <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">העלה קבלה (תמונה או PDF)</p>
-                    <p className="text-xs text-gray-400 mt-1">עד 10MB</p>
+                    <Upload className="w-8 h-8 mx-auto text-content-tertiary mb-2" />
+                    <p className="text-sm text-content-secondary">העלה קבלה (תמונה או PDF)</p>
+                    <p className="text-xs text-content-tertiary mt-1">עד 10MB</p>
                   </label>
                 )}
               </div>
@@ -1195,20 +1225,20 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
           {/* Photo Upload */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">העלאת תמונה (אופציונלי)</label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-primary-orange transition-colors cursor-pointer">
+            <label className="block text-sm font-medium text-content-secondary mb-2">העלאת תמונה (אופציונלי)</label>
+            <div className="border-2 border-dashed border-surface-border rounded-lg p-6 text-center hover:border-accent transition-colors cursor-pointer">
               <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />
               {photoPreview ? (
                 <div className="relative">
                   <img src={photoPreview} alt="Preview" className="max-h-48 mx-auto rounded-lg" />
-                  <button type="button" onClick={() => { setPhotoPreview(null); setFormData(prev => ({ ...prev, photoFile: undefined })) }} className="mt-3 text-sm text-red-600 hover:text-red-700">
+                  <button type="button" onClick={() => { setPhotoPreview(null); setFormData(prev => ({ ...prev, photoFile: undefined })) }} className="mt-3 text-sm text-status-rejected hover:text-status-rejected/80">
                     הסר תמונה
                   </button>
                 </div>
               ) : (
                 <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full">
-                  <Camera className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                  <p className="text-sm text-gray-600">צלם או העלה תמונה</p>
+                  <Camera className="w-12 h-12 mx-auto text-content-tertiary mb-3" />
+                  <p className="text-sm text-content-secondary">צלם או העלה תמונה</p>
                 </button>
               )}
             </div>
@@ -1216,46 +1246,80 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
           {/* Compensation Display */}
           {compensation > 0 && (
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-lg p-5">
+            <div className="bg-surface-overlay border border-accent-border rounded-xl p-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Banknote className="w-8 h-8 text-green-600" />
+                  <Banknote className="w-8 h-8 text-accent" />
                   <div>
-                    <p className="text-sm text-green-800 font-medium">פיצוי משוער</p>
-                    <p className="text-xs text-green-700">על פי תקנה 428ז</p>
+                    <p className="text-sm text-content-primary font-medium">פיצוי משוער</p>
+                    <p className="text-xs text-content-secondary">על פי תקנה 428ז</p>
                   </div>
                 </div>
-                <p className="text-3xl font-bold text-green-700">₪{compensation}</p>
+                <p className="text-3xl font-bold text-gold">₪{compensation}</p>
               </div>
             </div>
           )}
 
           {/* Evidence Chain Summary */}
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+          <div className="bg-surface-overlay rounded-lg p-4 border border-surface-border">
             <div className="flex items-center gap-2 mb-3">
-              <Shield className="w-5 h-5 text-gray-600" />
-              <span className="font-medium text-gray-800">שרשרת ראיות דיגיטלית</span>
+              <Shield className="w-5 h-5 text-content-secondary" />
+              <span className="font-medium text-content-primary">שרשרת ראיות דיגיטלית</span>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-              <div>GPS: <span className="text-gray-800">{gpsLocation ? `${Math.round(gpsLocation.accuracy)}m דיוק` : '-'}</span></div>
-              <div>זמן GPS: <span className="text-gray-800">{gpsLocation ? formatTimestamp(gpsLocation.timestamp) : '-'}</span></div>
-              <div>תחנה: <span className="text-gray-800">{stationValidation?.station?.name || '-'}</span></div>
-              <div>SIRI: <span className={siriValidation?.verified ? 'text-green-600' : 'text-orange-600'}>{siriValidation ? (siriValidation.verified ? 'מאומת' : 'אזהרה') : 'טרם נבדק'}</span></div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-content-secondary">
+              <div>GPS: <span className="text-content-primary">{gpsLocation ? `${Math.round(gpsLocation.accuracy)}m דיוק` : '-'}</span></div>
+              <div>זמן GPS: <span className="text-content-primary">{gpsLocation ? formatTimestamp(gpsLocation.timestamp) : '-'}</span></div>
+              <div>תחנה: <span className="text-content-primary">{stationValidation?.station?.name || '-'}</span></div>
+              <div>SIRI: <span className={siriValidation?.verified ? 'text-status-approved' : 'text-accent'}>{siriValidation ? (siriValidation.verified ? 'מאומת' : 'אזהרה') : 'טרם נבדק'}</span></div>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex gap-3 mt-8">
-          <button type="button" onClick={handleCancel} className="flex-1 py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
+          <button type="button" onClick={handleCancel} className="btn-secondary flex-1 py-3 px-6">
             ביטול
           </button>
-          <button type="button" onClick={handleSubmit} className="flex-1 py-3 px-6 bg-primary-orange hover:bg-orange-600 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2">
+          <button type="button" onClick={handleSubmit} className="btn-primary flex-1 py-3 px-6 flex items-center justify-center gap-2">
             <span>שלח דיווח</span>
             <ArrowRight className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {/* Minor Consent Block Modal */}
+      {showMinorBlockModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="card max-w-md w-full p-6" dir="rtl">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-status-pending-surface rounded-full flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-status-pending" />
+              </div>
+              <h3 className="text-xl font-bold text-content-primary mb-2">נדרשת הסכמת הורים</h3>
+              <p className="text-content-secondary mb-4">
+                {consentStatus.pendingConsent
+                  ? 'נשלחה בקשת הסכמה להורה שלך. עד שההורה יאשר, לא ניתן לדווח על אירועים.'
+                  : 'כדי לדווח על אירועים, צריך קודם לקבל הסכמת הורים. יש להירשם מחדש ולהזין את פרטי ההורה.'}
+              </p>
+
+              {consentStatus.pendingConsent && (
+                <div className="bg-accent-surface border border-accent-border p-3 rounded-lg mb-4">
+                  <p className="text-sm text-content-secondary">
+                    בקשת הסכמה ממתינה לאישור. נא לבקש מההורה לבדוק את הדוא&quot;ל.
+                  </p>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowMinorBlockModal(false)}
+                className="btn-primary w-full py-3 px-6"
+              >
+                הבנתי
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

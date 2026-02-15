@@ -117,18 +117,7 @@ export async function POST(request: NextRequest) {
     }
     */
 
-    // TEMPORARY: Mock response for development
-    console.log('🤖 MOCK WEB FORM SUBMISSION')
-    console.log('Company:', companyName)
-    console.log('Form URL:', formUrl)
-    console.log('User:', fullName, idNumber)
-    console.log('Ministry Notification:', notifyMinistry ? 'YES' : 'NO')
-
-    // Simulate Ministry notification
-    if (notifyMinistry) {
-      console.log('📧 Sending notification to Ministry:', MINISTRY_EMAIL)
-    }
-
+    // TEMPORARY: Mock response for development (Puppeteer not installed)
     return NextResponse.json({
       success: true,
       confirmationNumber: `MOCK-${Date.now()}`,

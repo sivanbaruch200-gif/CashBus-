@@ -34,10 +34,39 @@
 - **Verification:** Cross-reference user location with bus GPS data
 - **Output:** Digitally signed 'fault ticket'
 
-### Business Model
-1. **Freemium:** Free event documentation
-2. **Warning Letter (Low Ticket):** 29-49 NIS for AI-generated official warning letter
-3. **Success Fee (High Ticket):** 15-20% commission on final compensation from court cases
+### Business Model (Updated)
+1. **Freemium:** Free event documentation (no upfront payment)
+2. **Success Fee Model (80/20):**
+   - Customer pays NOTHING upfront
+   - Upon receiving compensation: 80% to customer, 20% to CashBus
+   - Compensation transferred to CashBus account first, then 80% forwarded to customer
+3. **Payment Collection:** CashBus bank account receives all compensation payments
+
+### Legal Guidelines (From Lawyer Consultation)
+**Key Principles:**
+- System generates letters based on USER-PROVIDED information = legitimate
+- User clicks "Send" = user is the sender, not CashBus
+- CashBus is a **technology platform**, NOT a law firm
+- No unauthorized practice of law (הסגת גבול המקצוע)
+
+**Demand Letter Guidelines:**
+- **Deadline:** 21 days (not 2 days) - more reasonable for response
+- **Threat Strategy:** Threaten to report to Ministry of Transportation (משרד התחבורה)
+  - DO NOT actually send complaints to Ministry
+  - Ministry doesn't handle compensation - only courts do
+- **Reminders:** Weekly reminders after initial deadline
+
+**Legal Precedent:**
+- Case: תק (י-ם) 5312/07 (Jerusalem Small Claims Court, 31.03.2008)
+- Ruling: 2,000 NIS compensation for train delay
+- Key Quote: "הקפדה על לוח זמנים היא אינטרס לאומי" (adherence to schedule is national interest)
+- Note: District Court ruled differently in 2008 regarding rail - Supreme Court hasn't decided
+- **Application:** Precedent can be cited for buses as well (same principle)
+
+**Incident Types:**
+- Bus delay (איחור)
+- Bus didn't arrive (לא הגיע)
+- Bus didn't stop (לא עצר) - NEW: Need to add detection logic
 
 ### Legal Automation
 - **Delay Log:** Accumulates incidents per company
@@ -60,9 +89,42 @@
 - **Unique Value:** Real-time legal documentation + AI automation + aggregated claims model
 
 ## Current Status
-- **Phase:** 3.5 - Infrastructure Upgrade (Evidence Engine)
-- **Last Updated:** 2026-01-09
-- **Status:** Completed
+- **Phase:** 4 - Legal Automation & Admin System
+- **Last Updated:** 2026-02-14
+- **Status:** In Progress - Visual Refactor Complete, Build Passing
+
+## Recent Updates (2026-02-14)
+### Visual Refactor (Dark Theme) - Completed:
+All 16+ files migrated from old Tailwind classes (bg-white, text-gray-*, bg-orange-*) to new dark theme design tokens (bg-surface-raised, text-content-primary, bg-accent, etc.). Tokens defined in `tailwind.config.js` and `globals.css`.
+
+### Build Fixes - Completed:
+1. ✅ **Auth route conflict** - Deleted `app/auth/route.ts` (conflicted with `app/auth/page.tsx`), created proper `app/auth/callback/page.tsx` for magic link OTP flow
+2. ✅ **Missing supabase exports** - Added all missing types and functions to `lib/supabase.ts`:
+   - Types: `Incident`, `Claim`, `ParentalConsent`, `BusCompany`, `LegalSubmission`
+   - Functions: `updateIncidentToClaimed`, `adminUpdateIncidentStatus`, `adminMarkIncidentPaid`, `uploadPDFDocument`, `getUserIncidents`, `getUserClaims`, `getAllIncidentsForAdmin`, `getAdminStatistics`, `getParentalConsentByToken`, `submitParentalConsent`
+3. ✅ **isUserAdmin** - Updated to work with or without userId parameter (fetches from session if not provided)
+4. ✅ **createIncidentWithPhoto** - Updated to handle photo and receipt file uploads to Supabase Storage
+5. ✅ **Profile type** - Extended with `home_address`, `city`, `postal_code`, `total_incidents`, `total_claims`, `total_received`, `total_potential`
+6. ✅ **LegalSubmission type** - Extended with all automation/email/form tracking fields
+
+### Previous Updates (2026-02-06):
+### Bug Fixes Completed:
+1. ✅ **Scale icon import** - Added missing import in `app/admin/claims/[id]/page.tsx`
+2. ✅ **Payment Modal** - Added `showPaymentModal` state and full modal UI for payment registration
+3. ✅ **Email Sending in Letter Queue** - Connected `handleSendEmail` to actual API:
+   - Generates PDF → Uploads to Storage → Calls `/api/send-legal-email`
+   - Added missing `generateWarningLetterPDF`, `WarningLetterFilename`, `WarningLetterData` to pdfGenerator
+4. ✅ **Created /api/send-email** - New endpoint for simple text emails (used by collectionWorkflow.ts)
+
+### Legal Consultation (Sent to Lawyer):
+Questions sent regarding:
+1. עמלת הצלחה - האם דורש רישיון?
+2. ראיות GPS+SIRI - בסיס משפטי?
+3. איחוד תביעות של משתמשים שונים
+4. תנאי שימוש - נוסח מקובל?
+5. רישום מאגרי מידע - חובה?
+
+**Status:** ממתינים לתשובה מעורכת הדין
 
 ## Phase Progress
 - ✅ **Phase 1:** Infrastructure Setup and Initial Design - Completed
@@ -73,8 +135,14 @@
   - GTFS Data Automation (Edge Function + Cron)
   - OpenBus Stride API integration (real-time SIRI data)
   - Automated incident verification logic
-  - **Real-Time Data Validation System** (NEW)
-- ⏳ **Phase 4:** Legal Automation (AI Letters) - Pending
+  - **Real-Time Data Validation System**
+- 🔄 **Phase 4:** Legal Automation (AI Letters) - In Progress
+  - ✅ Admin panel for claims management
+  - ✅ Letter queue with email sending
+  - ✅ PDF generation from templates
+  - ✅ Payment tracking modal
+  - ⏳ Legal review of Terms of Service
+  - ⏳ Privacy policy finalization
 
 ## New Infrastructure (Phase 3.5)
 
@@ -132,6 +200,25 @@
 4. Verify: `SELECT COUNT(*) FROM gtfs_stops;` (should be ~25,000+)
 5. Set up cron job for daily updates
 
+## Legal Pages (NEW)
+- **Terms of Service:** `app/terms/page.tsx` - Full terms including 80/20 model
+- **Privacy Policy:** `app/privacy/page.tsx` - Data collection & handling
+
+## Pending Legal Review Items
+**Status:** שאלות נשלחו לעורכת דין (2026-02-06) - ממתינים לתשובה
+
+Questions sent:
+1. 📨 עמלת הצלחה (20%) - האם להעביר כסף דרך חשבון CashBus דורש רישיון?
+2. 📨 ראיות GPS+SIRI - האם מהוות בסיס משפטי מספיק?
+3. 📨 איחוד תביעות של משתמשים שונים לתביעה אחת
+4. 📨 תנאי שימוש - נוסח מקובל / מה חייב להיכלל?
+5. 📨 רישום מאגרי מידע - האם חובה לפי חוק הגנת הפרטיות?
+
+Additional items to clarify (not yet sent):
+- מכתב התראה במייל vs. דואר רשום
+- הסכמת הורים לקטינים - נוסח נדרש
+- ביטוח אחריות מקצועית
+
 ## Related Documents
 - [Master Plan](MASTER_PLAN.md)
 - [Phase 1 Setup Plan](plans/phase-1-setup.md)
@@ -140,3 +227,6 @@
 - [GTFS Deployment Guide](GTFS_DEPLOYMENT_GUIDE.md)
 - [Storage Setup Guide](STORAGE_SETUP.md)
 - [Context](CONTEXT.md)
+- [Terms of Service](app/terms/page.tsx)
+- [Privacy Policy](app/privacy/page.tsx)
+- [Legal Questions for Lawyer](docs/LAWYER_QUESTIONS_FOCUSED.md) - שאלות לעורכת דין

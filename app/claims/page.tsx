@@ -75,8 +75,6 @@ export default function MyClaimsPage() {
     // Use onAuthStateChange to properly wait for auth initialization
     // This fixes the race condition where isUserAdmin runs before session is loaded
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('[claims] Auth state changed:', event, session?.user?.email)
-
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
         if (!session) {
           router.push('/auth')
@@ -96,24 +94,20 @@ export default function MyClaimsPage() {
   const loadData = async () => {
     // Check if user is admin - session is guaranteed to be loaded here
     const adminStatus = await isUserAdmin()
-    console.log('[claims] Admin status:', adminStatus)
     setIsAdmin(adminStatus)
 
     // Load incidents - admins see all, regular users see only their own
     let userIncidents: IncidentWithProfile[]
     if (adminStatus) {
-      console.log('[claims] Loading all incidents for admin...')
       userIncidents = await getAllIncidentsForAdmin(100)
 
       // Load admin statistics
       const stats = await getAdminStatistics()
       setAdminStats(stats)
     } else {
-      console.log('[claims] Loading user incidents...')
       userIncidents = await getUserIncidents(100)
     }
 
-    console.log('[claims] Loaded incidents:', userIncidents.length)
     const userClaims = await getUserClaims()
 
     setIncidents(userIncidents)

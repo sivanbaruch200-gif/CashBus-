@@ -33,128 +33,90 @@ export default function AdminSidebar({ currentPath, onClose }: AdminSidebarProps
       name: 'לוח בקרה',
       href: '/admin',
       icon: LayoutDashboard,
-      description: 'סקירה כללית ונתונים סטטיסטיים',
+      description: 'סקירה כללית וסטטיסטיקה',
     },
     {
       name: 'ניהול תביעות',
       href: '/admin/claims',
       icon: FileText,
-      description: 'צפייה וניהול תביעות לקוחות',
+      description: 'ניהול תביעות לקוחות',
     },
     {
       name: 'תור מכתבים',
       href: '/admin/letter-queue',
       icon: Mail,
-      description: 'שליחת מכתבים ומעקב תזכורות',
+      description: 'שליחת מכתבים ומעקב',
     },
     {
       name: 'תבניות מכתבים',
       href: '/admin/templates',
       icon: FileEdit,
-      description: 'עריכת תבניות ל-3 שלבי התראה',
-    },
-    {
-      name: 'אוטומציה וזרימות',
-      href: '/admin/workflows',
-      icon: Workflow,
-      description: 'ניהול תהליכי עבודה אוטומטיים',
-    },
-    {
-      name: 'הגדרות מערכת',
-      href: '/admin/settings',
-      icon: Settings,
-      description: 'תבניות, הודעות ותצורה כללית',
+      description: 'עריכת תבניות התראה',
     },
   ]
 
-  const isActive = (href: string) => {
-    if (href === '/admin') {
-      return currentPath === '/admin'
-    }
-    return currentPath?.startsWith(href)
-  }
-
   return (
-    <div className="w-72 bg-gradient-to-b from-gray-900 to-gray-800 h-screen flex flex-col shadow-2xl">
-      {/* Header */}
-      <div className="p-6 border-b border-gray-700">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="bg-primary-orange p-2.5 rounded-lg shadow-lg">
-            <Bus className="w-7 h-7 text-white" />
+    <div className="flex flex-col h-full bg-surface-base border-l border-surface-border" dir="rtl">
+      {/* Logo Area */}
+      <div className="p-6 border-b border-surface-border">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center border border-accent/20">
+            <Bus className="w-6 h-6 text-accent" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">CashBus</h1>
-            <p className="text-xs text-gray-400">ממשק ניהול</p>
+            <h1 className="text-lg font-bold text-content-primary">CashBus Admin</h1>
+            <p className="text-xs text-content-tertiary">מערכת ניהול פיצויים</p>
           </div>
         </div>
       </div>
 
-      {/* Navigation Menu */}
-      <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
         {menuItems.map((item) => {
-          const Icon = item.icon
-          const active = isActive(item.href)
-
+          const active = currentPath === item.href
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={`
-                group block rounded-xl transition-all duration-200
-                ${active
-                  ? 'bg-primary-orange text-white shadow-lg shadow-orange-500/30'
-                  : 'text-gray-300 hover:bg-gray-700/50 hover:text-white'
-                }
-              `}
+              className={`group flex flex-col p-3 rounded-xl transition-all duration-200 ${
+                active 
+                  ? 'bg-accent/10 border border-accent/20' 
+                  : 'hover:bg-surface-overlay border border-transparent'
+              }`}
             >
-              <div className="px-4 py-3.5">
-                <div className="flex items-center gap-3 mb-1">
-                  <Icon className={`w-5 h-5 ${active ? 'text-white' : 'text-gray-400 group-hover:text-white'}`} />
-                  <span className="font-semibold text-sm">{item.name}</span>
-                  {active && (
-                    <ChevronLeft className="w-4 h-4 mr-auto" />
-                  )}
-                </div>
-                <p className={`text-xs mr-8 ${active ? 'text-orange-100' : 'text-gray-500 group-hover:text-gray-400'}`}>
-                  {item.description}
-                </p>
+              <div className="flex items-center gap-3">
+                <item.icon className={`w-5 h-5 ${active ? 'text-accent' : 'text-content-tertiary group-hover:text-content-secondary'}`} />
+                <span className={`font-medium ${active ? 'text-content-primary' : 'text-content-secondary group-hover:text-content-primary'}`}>
+                  {item.name}
+                </span>
+                {active && <div className="mr-auto w-1.5 h-1.5 rounded-full bg-accent shadow-[0_0_10px_#D97706]" />}
               </div>
+              <p className={`text-[11px] mt-1 mr-8 ${active ? 'text-accent/70' : 'text-content-tertiary'}`}>
+                {item.description}
+              </p>
             </Link>
           )
         })}
       </nav>
 
       {/* Bottom Actions */}
-      <div className="p-4 border-t border-gray-700 space-y-2">
-        {/* Back to User Dashboard */}
+      <div className="p-4 border-t border-surface-border space-y-2">
         <Link
           href="/"
-          onClick={onClose}
-          className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-gray-300 hover:bg-gray-700/50 hover:text-white transition-all duration-200 text-sm"
+          className="flex items-center gap-3 px-4 py-3 rounded-xl text-content-secondary hover:bg-surface-overlay hover:text-content-primary transition-all text-sm"
         >
           <ChevronLeft className="w-4 h-4" />
           <span>חזרה לממשק משתמש</span>
         </Link>
 
-        {/* Logout */}
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all duration-200 text-sm"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-status-rejected hover:bg-status-rejected-surface transition-all text-sm font-medium"
         >
           <LogOut className="w-4 h-4" />
           <span>התנתק מהמערכת</span>
         </button>
-      </div>
-
-      {/* Footer Info */}
-      <div className="px-6 py-4 bg-gray-900/50">
-        <p className="text-xs text-gray-500 text-center">
-          Phase 4: Admin Interface
-        </p>
-        <p className="text-xs text-gray-600 text-center mt-1">
-          v1.0.0 - 2026
-        </p>
       </div>
     </div>
   )

@@ -8,8 +8,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { MINISTRY_EMAIL } from '@/lib/legalSubmissions'
 import { Resend } from 'resend'
+import { createClient } from '@supabase/supabase-js'
 
-const resend = new Resend(process.env.RESEND_API_KEY || 'placeholder_key')
+function getResend() {
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error('Missing RESEND_API_KEY environment variable')
+  }
+  return new Resend(process.env.RESEND_API_KEY)
+}
+
+// Supabase client with service role for server-side operations
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+)
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,8 +50,9 @@ export async function POST(request: NextRequest) {
     const pdfBuffer = await pdfResponse.arrayBuffer()
 
     // Send email with Resend
-    const { data, error } = await resend.emails.send({
-      from: 'CashBus Legal <legal@cashbus.co.il>',
+    const { data, error } = await getResend().emails.send({
+      from: 'CashBus Legal <legal@cashbuses.com>',
+      replyTo: 'cash.bus200@gmail.com',
       to: [to],
       bcc: bccList,
       subject: subject,
@@ -61,8 +74,32 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Resend error:', error)
+      // Log failed email
+      await supabase.from('email_logs').insert({
+        message_id: null,
+        from_email: 'legal@cashbuses.com',
+        to_email: to,
+        subject: subject,
+        status: 'failed',
+        error_message: error.message,
+        submission_id: submissionId || null,
+        email_type: 'legal_demand',
+        metadata: { bcc: bccList }
+      })
       throw new Error(error.message)
     }
+
+    // Log successful email to email_logs table (legal evidence)
+    await supabase.from('email_logs').insert({
+      message_id: data.id,
+      from_email: 'legal@cashbuses.com',
+      to_email: to,
+      subject: subject,
+      status: 'sent',
+      submission_id: submissionId || null,
+      email_type: 'legal_demand',
+      metadata: { bcc: bccList, attachments: ['warning-letter.pdf'] }
+    })
 
     return NextResponse.json({
       success: true,

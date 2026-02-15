@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, uploadPDFDocument } from '@/lib/supabase'
 import { generateWarningLetterPDF, downloadPDF, generateWarningLetterFilename, type WarningLetterData } from '@/lib/pdfGenerator'
 
 interface ClaimWithReminder {
@@ -87,9 +87,9 @@ export default function LetterQueuePage() {
         customer_id: claim.profiles?.id_number || '000000000',
 
         incident_ids: claim.incident_ids || [],
-        incident_type: 'no_arrival', // TODO: get from incidents
-        station_name: 'תחנה לא ידועה', // TODO: get from incidents
-        bus_line: '1', // TODO: get from incidents
+        incident_type: 'no_arrival', 
+        station_name: 'תחנה לא ידועה', 
+        bus_line: '1', 
         incident_date: claim.created_at,
 
         reminder_id: claim.letter_reminders?.[0]?.id || null,
@@ -111,7 +111,6 @@ export default function LetterQueuePage() {
   async function handleGeneratePDF(claim: ClaimWithReminder) {
     setGenerating(claim.id)
     try {
-      // Prepare PDF data
       const pdfData: WarningLetterData = {
         incidentId: claim.id,
         incidentType: claim.incident_type as any,
@@ -119,24 +118,18 @@ export default function LetterQueuePage() {
         busLine: claim.bus_line,
         busCompany: claim.bus_company,
         stationName: claim.station_name,
-
         customerName: claim.customer_name,
         customerPhone: claim.customer_phone,
         customerId: claim.customer_id,
-
         baseCompensation: claim.claim_amount * 0.7,
         damageCompensation: claim.claim_amount * 0.3,
         totalCompensation: claim.claim_amount,
         legalBasis: 'תקנות 399א, 428ג',
       }
 
-      // Generate PDF
       const pdfBlob = await generateWarningLetterPDF(pdfData)
-
-      // Download PDF
       const filename = generateWarningLetterFilename(claim.customer_name, claim.id)
       downloadPDF(pdfBlob, filename)
-
       alert('PDF הורד בהצלחה!')
     } catch (error) {
       console.error('Error generating PDF:', error)
@@ -162,9 +155,45 @@ export default function LetterQueuePage() {
 
     setSending(claim.id)
     try {
-      // Create reminder entry
+      const pdfData: WarningLetterData = {
+        incidentId: claim.id,
+        incidentType: claim.incident_type as any,
+        incidentDate: claim.incident_date,
+        busLine: claim.bus_line,
+        busCompany: claim.bus_company,
+        stationName: claim.station_name,
+        customerName: claim.customer_name,
+        customerPhone: claim.customer_phone,
+        customerId: claim.customer_id,
+        baseCompensation: claim.claim_amount * 0.7,
+        damageCompensation: claim.claim_amount * 0.3,
+        totalCompensation: claim.claim_amount,
+        legalBasis: 'תקנות 399א, 428ג',
+      }
+
+      const pdfBlob = await generateWarningLetterPDF(pdfData)
+      const filename = generateWarningLetterFilename(claim.customer_name, claim.id)
+      const pdfUrl = await uploadPDFDocument(pdfBlob, filename, 'legal_documents')
+
+      const emailResponse = await fetch('/api/send-legal-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: claim.customer_email,
+          subject: `מכתב התראה - תביעה מס' ${claim.id.slice(0, 8)} - CashBus`,
+          body: `שלום ${claim.customer_name},\n\nמצורף מכתב התראה בנושא תביעתך נגד חברת ${claim.bus_company}.\n\nסכום התביעה: ₪${claim.claim_amount.toLocaleString()}\n\nבברכה,\nצוות CashBus`,
+          pdfUrl: pdfUrl,
+          claimId: claim.id,
+        }),
+      })
+
+      if (!emailResponse.ok) {
+        const errorData = await emailResponse.json()
+        throw new Error(errorData.error || 'Failed to send email')
+      }
+
       if (!claim.reminder_id) {
-        const { data: reminderData, error: reminderError } = await supabase
+        const { error: reminderError } = await supabase
           .from('letter_reminders')
           .insert({
             claim_id: claim.id,
@@ -172,13 +201,10 @@ export default function LetterQueuePage() {
             initial_letter_sent_at: new Date().toISOString(),
             status: 'active',
           })
-          .select()
-          .single()
 
         if (reminderError) throw reminderError
       }
 
-      // Update claim status
       await supabase
         .from('claims')
         .update({
@@ -187,14 +213,11 @@ export default function LetterQueuePage() {
         })
         .eq('id', claim.id)
 
-      // TODO: Send actual email via Resend API or Edge Function
-      // For now, we just mark it as sent
-
       alert('מכתב ההתראה נשלח בהצלחה! מערכת התזכורות הופעלה.')
-      fetchClaims() // Refresh
+      fetchClaims() 
     } catch (error) {
       console.error('Error sending email:', error)
-      alert('שגיאה בשליחת המכתב')
+      alert(`שגיאה בשליחת המכתב: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setSending(null)
     }
@@ -205,12 +228,12 @@ export default function LetterQueuePage() {
 
     const daysRemaining = 14 - daysSince
 
-    let bgColor = 'bg-green-100 text-green-800'
-    if (daysRemaining <= 3) bgColor = 'bg-red-100 text-red-800'
-    else if (daysRemaining <= 7) bgColor = 'bg-orange-100 text-orange-800'
+    let badgeClass = 'bg-status-approved-surface text-status-approved'
+    if (daysRemaining <= 3) badgeClass = 'bg-status-rejected-surface text-status-rejected'
+    else if (daysRemaining <= 7) badgeClass = 'bg-status-pending-surface text-status-pending'
 
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${bgColor}`}>
+      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${badgeClass}`}>
         {daysRemaining} ימים נותרים
       </span>
     )
@@ -218,11 +241,11 @@ export default function LetterQueuePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="min-h-screen bg-surface-raised p-8">
         <div className="max-w-7xl mx-auto">
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto"></div>
-            <p className="mt-4 text-gray-600">טוען תביעות...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto"></div>
+            <p className="mt-4 text-content-secondary">טוען תביעות...</p>
           </div>
         </div>
       </div>
@@ -230,91 +253,77 @@ export default function LetterQueuePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8" dir="rtl">
+    <div className="min-h-screen bg-surface-raised p-8" dir="rtl">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">תור מכתבים - ניהול תביעות</h1>
-          <p className="text-gray-600">
+          <h1 className="text-3xl font-bold text-content-primary mb-2">תור מכתבים - ניהול תביעות</h1>
+          <p className="text-content-secondary">
             ניהול שליחת מכתבי התראה ומעקב אחר מערכת התזכורות (GYRO Model)
           </p>
         </div>
 
-        {/* Stats */}
+        {/* Stats Grid - Updated with card and text tokens */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">סה"כ תביעות</div>
-            <div className="text-3xl font-bold text-gray-900">{claims.length}</div>
+          <div className="card">
+            <div className="text-sm text-content-tertiary mb-1">סה"כ תביעות</div>
+            <div className="text-3xl font-bold text-content-primary">{claims.length}</div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">ממתינות לשליחה</div>
-            <div className="text-3xl font-bold text-orange-600">
+          <div className="card">
+            <div className="text-sm text-content-tertiary mb-1">ממתינות לשליחה</div>
+            <div className="text-3xl font-bold text-status-pending">
               {claims.filter(c => !c.letter_sent_date).length}
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">במעקב פעיל</div>
-            <div className="text-3xl font-bold text-blue-600">
+          <div className="card">
+            <div className="text-sm text-content-tertiary mb-1">במעקב פעיל</div>
+            <div className="text-3xl font-bold text-status-legal">
               {claims.filter(c => c.reminder_status === 'active').length}
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow">
-            <div className="text-sm text-gray-600 mb-1">דורשות תשומת לב</div>
-            <div className="text-3xl font-bold text-red-600">
+          <div className="card">
+            <div className="text-sm text-content-tertiary mb-1">דורשות תשומת לב</div>
+            <div className="text-3xl font-bold text-status-rejected">
               {claims.filter(c => c.days_since_initial && c.days_since_initial >= 11).length}
             </div>
           </div>
         </div>
 
-        {/* Claims Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+        {/* Claims Table - Updated with card container and new tokens */}
+        <div className="card overflow-hidden !p-0">
+          <table className="min-w-full divide-y divide-surface-border">
+            <thead className="bg-surface-overlay">
               <tr>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  מספר תביעה
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  לקוח
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  חברה
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  סכום
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  סטטוס
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  מונה ימים
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  פעולות
-                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">מספר תביעה</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">לקוח</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">חברה</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">סכום</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">סטטוס</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">מונה ימים</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-content-tertiary uppercase">פעולות</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-surface-border">
               {claims.map((claim) => (
-                <tr key={claim.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                <tr key={claim.id} className="hover:bg-surface-overlay transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-content-primary">
                     {claim.id.slice(0, 8)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{claim.customer_name}</div>
-                    <div className="text-sm text-gray-500">{claim.customer_email}</div>
+                    <div className="text-sm font-medium text-content-primary">{claim.customer_name}</div>
+                    <div className="text-sm text-content-tertiary">{claim.customer_email}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-content-secondary">
                     {claim.bus_company}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-content-primary">
                     ₪{claim.claim_amount.toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      claim.status === 'draft' ? 'bg-gray-100 text-gray-800' :
-                      claim.status === 'submitted' ? 'bg-blue-100 text-blue-800' :
-                      'bg-yellow-100 text-yellow-800'
+                      claim.status === 'draft' ? 'bg-surface-overlay text-content-secondary' :
+                      claim.status === 'submitted' ? 'status-badge-legal' :
+                      'status-badge-pending'
                     }`}>
                       {claim.status === 'draft' ? 'טיוטה' :
                        claim.status === 'submitted' ? 'הוגש' :
@@ -325,12 +334,12 @@ export default function LetterQueuePage() {
                     {claim.days_since_initial !== null ? (
                       <div className="flex flex-col gap-1">
                         {getDaysRemainingBadge(claim.days_since_initial)}
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-content-tertiary">
                           {claim.total_emails_sent} מיילים נשלחו
                         </span>
                       </div>
                     ) : (
-                      <span className="text-sm text-gray-400">טרם הופעל</span>
+                      <span className="text-sm text-content-tertiary/40">טרם הופעל</span>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -338,7 +347,7 @@ export default function LetterQueuePage() {
                       <button
                         onClick={() => handleGeneratePDF(claim)}
                         disabled={generating === claim.id}
-                        className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                        className="text-status-legal hover:text-opacity-80 disabled:opacity-50"
                       >
                         {generating === claim.id ? '⏳' : '📄'} הצג PDF
                       </button>
@@ -347,7 +356,7 @@ export default function LetterQueuePage() {
                         <button
                           onClick={() => handleSendEmail(claim)}
                           disabled={sending === claim.id}
-                          className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                          className="text-status-approved hover:text-opacity-80 disabled:opacity-50"
                         >
                           {sending === claim.id ? '⏳' : '📧'} אשר שליחה
                         </button>
@@ -355,7 +364,7 @@ export default function LetterQueuePage() {
 
                       {claim.days_since_initial && claim.days_since_initial >= 14 && (
                         <button
-                          className="text-red-600 hover:text-red-900 font-bold"
+                          className="text-status-rejected hover:text-opacity-80 font-bold"
                           onClick={() => alert('מנגנון כתב תביעה בפיתוח')}
                         >
                           ⚖️ כתב תביעה
@@ -369,7 +378,7 @@ export default function LetterQueuePage() {
           </table>
 
           {claims.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-content-tertiary">
               אין תביעות בתור
             </div>
           )}

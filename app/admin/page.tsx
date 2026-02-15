@@ -155,8 +155,8 @@ export default function AdminDashboard() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary-orange border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">טוען נתונים...</p>
+          <div className="w-16 h-16 border-4 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-content-secondary">טוען נתונים...</p>
         </div>
       </div>
     )
@@ -166,120 +166,120 @@ export default function AdminDashboard() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">לוח בקרה ראשי</h1>
-        <p className="text-gray-600">סקירה כללית של מערכת CashBus - תביעות, לקוחות, ואוטומציה</p>
+        <h1 className="text-3xl font-bold text-content-primary mb-2">לוח בקרה ראשי</h1>
+        <p className="text-content-secondary">סקירה כללית של מערכת CashBus - תביעות, לקוחות, ואוטומציה</p>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {/* Total Claims */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-blue-100 p-3 rounded-lg">
-              <FileText className="w-6 h-6 text-blue-600" />
+            <div className="bg-surface-overlay p-3 rounded-lg">
+              <FileText className="w-6 h-6 text-status-legal" />
             </div>
-            <span className="text-xs text-gray-500">סה"כ</span>
+            <span className="text-xs text-content-tertiary">סה"כ</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalClaims}</h3>
-          <p className="text-sm text-gray-600">תביעות במערכת</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{stats.totalClaims}</h3>
+          <p className="text-sm text-content-secondary">תביעות במערכת</p>
         </div>
 
         {/* Pending Claims */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-yellow-100 p-3 rounded-lg">
-              <Clock className="w-6 h-6 text-yellow-600" />
+            <div className="bg-status-pending-surface p-3 rounded-lg">
+              <Clock className="w-6 h-6 text-status-pending" />
             </div>
-            <span className="text-xs text-gray-500">ממתינות</span>
+            <span className="text-xs text-content-tertiary">ממתינות</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.pendingClaims}</h3>
-          <p className="text-sm text-gray-600">תביעות בטיפול</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{stats.pendingClaims}</h3>
+          <p className="text-sm text-content-secondary">תביעות בטיפול</p>
         </div>
 
         {/* Approved Claims */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-green-100 p-3 rounded-lg">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+            <div className="bg-status-approved-surface p-3 rounded-lg">
+              <CheckCircle className="w-6 h-6 text-status-approved" />
             </div>
-            <span className="text-xs text-gray-500">מאושרות</span>
+            <span className="text-xs text-content-tertiary">מאושרות</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.approvedClaims}</h3>
-          <p className="text-sm text-gray-600">תביעות שאושרו</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{stats.approvedClaims}</h3>
+          <p className="text-sm text-content-secondary">תביעות שאושרו</p>
         </div>
 
         {/* Total Users */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-purple-100 p-3 rounded-lg">
-              <Users className="w-6 h-6 text-purple-600" />
+            <div className="bg-surface-overlay p-3 rounded-lg">
+              <Users className="w-6 h-6 text-accent" />
             </div>
-            <span className="text-xs text-gray-500">משתמשים</span>
+            <span className="text-xs text-content-tertiary">משתמשים</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.totalUsers}</h3>
-          <p className="text-sm text-gray-600">לקוחות רשומים</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{stats.totalUsers}</h3>
+          <p className="text-sm text-content-secondary">לקוחות רשומים</p>
         </div>
 
         {/* Total Compensation */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-orange-100 p-3 rounded-lg">
-              <DollarSign className="w-6 h-6 text-primary-orange" />
+            <div className="bg-accent-surface p-3 rounded-lg">
+              <DollarSign className="w-6 h-6 text-accent" />
             </div>
-            <span className="text-xs text-gray-500">פיצויים</span>
+            <span className="text-xs text-content-tertiary">פיצויים</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{formatCurrency(stats.totalCompensation)}</h3>
-          <p className="text-sm text-gray-600">סה"כ פיצויים ששולמו</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{formatCurrency(stats.totalCompensation)}</h3>
+          <p className="text-sm text-content-secondary">סה"כ פיצויים ששולמו</p>
         </div>
 
         {/* Average Claim */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-teal-100 p-3 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-teal-600" />
+            <div className="bg-surface-overlay p-3 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-status-approved" />
             </div>
-            <span className="text-xs text-gray-500">ממוצע</span>
+            <span className="text-xs text-content-tertiary">ממוצע</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{formatCurrency(stats.averageClaimAmount)}</h3>
-          <p className="text-sm text-gray-600">סכום תביעה ממוצע</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{formatCurrency(stats.averageClaimAmount)}</h3>
+          <p className="text-sm text-content-secondary">סכום תביעה ממוצע</p>
         </div>
 
         {/* Active Workflows */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-indigo-100 p-3 rounded-lg">
-              <Activity className="w-6 h-6 text-indigo-600" />
+            <div className="bg-surface-overlay p-3 rounded-lg">
+              <Activity className="w-6 h-6 text-accent" />
             </div>
-            <span className="text-xs text-gray-500">אוטומציה</span>
+            <span className="text-xs text-content-tertiary">אוטומציה</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.activeWorkflows}</h3>
-          <p className="text-sm text-gray-600">זרימות פעילות</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{stats.activeWorkflows}</h3>
+          <p className="text-sm text-content-secondary">זרימות פעילות</p>
         </div>
 
         {/* Rejected Claims */}
-        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100 hover:shadow-lg transition-shadow">
+        <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <div className="bg-red-100 p-3 rounded-lg">
-              <AlertCircle className="w-6 h-6 text-red-600" />
+            <div className="bg-status-rejected-surface p-3 rounded-lg">
+              <AlertCircle className="w-6 h-6 text-status-rejected" />
             </div>
-            <span className="text-xs text-gray-500">נדחו</span>
+            <span className="text-xs text-content-tertiary">נדחו</span>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-1">{stats.rejectedClaims}</h3>
-          <p className="text-sm text-gray-600">תביעות שנדחו</p>
+          <h3 className="text-2xl font-bold text-content-primary mb-1">{stats.rejectedClaims}</h3>
+          <p className="text-sm text-content-secondary">תביעות שנדחו</p>
         </div>
       </div>
 
       {/* Recent Activity Section */}
-      <div className="bg-white rounded-xl shadow-md border border-gray-100">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">פעילות אחרונה</h2>
-          <p className="text-sm text-gray-600 mt-1">100 הפעולות האחרונות במערכת</p>
+      <div className="bg-surface-raised rounded-xl shadow-glass border border-surface-border">
+        <div className="px-6 py-4 border-b border-surface-border">
+          <h2 className="text-xl font-bold text-content-primary">פעילות אחרונה</h2>
+          <p className="text-sm text-content-secondary mt-1">10 הפעולות האחרונות במערכת</p>
         </div>
 
         <div className="p-6">
           {recentActivity.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <Activity className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+            <div className="text-center py-12 text-content-tertiary">
+              <Activity className="w-12 h-12 mx-auto mb-3 text-content-tertiary/50" />
               <p>אין פעילות להצגה</p>
             </div>
           ) : (
@@ -287,28 +287,28 @@ export default function AdminDashboard() {
               {recentActivity.map((activity) => (
                 <div
                   key={activity.id}
-                  className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-start gap-4 p-4 bg-surface-overlay rounded-lg hover:bg-surface-border transition-colors"
                 >
-                  <div className={`w-2 h-2 rounded-full mt-2 ${activity.success ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <div className={`w-2 h-2 rounded-full mt-2 ${activity.success ? 'bg-status-approved' : 'bg-status-rejected'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-gray-900 text-sm">
+                      <span className="font-medium text-content-primary text-sm">
                         {getActionTypeLabel(activity.action_type)}
                       </span>
                       {activity.claim_amount && (
-                        <span className="text-xs text-gray-600">
+                        <span className="text-xs text-content-tertiary">
                           ({formatCurrency(activity.claim_amount)})
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-700 mb-1">{activity.description}</p>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <p className="text-sm text-content-secondary mb-1">{activity.description}</p>
+                    <div className="flex items-center gap-3 text-xs text-content-tertiary">
                       {activity.performed_by_name && (
                         <span>ע"י {activity.performed_by_name}</span>
                       )}
                       <span>{formatRelativeTime(activity.created_at)}</span>
                       {activity.claim_id && (
-                        <span className="text-gray-400">#{activity.claim_id.slice(0, 8)}</span>
+                        <span className="text-content-tertiary/60">#{activity.claim_id.slice(0, 8)}</span>
                       )}
                     </div>
                   </div>

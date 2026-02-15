@@ -31,19 +31,19 @@ const TEMPLATE_TYPES = {
     label: "שלב א': מכתב דרישה ראשוני",
     description: 'מכתב דרישה ראשוני לפי תקנה 428ג - נשלח מיד לאחר הדיווח',
     icon: FileText,
-    color: 'blue',
+    statusColor: 'status-legal',
   },
   reminder_14_days: {
     label: "שלב ב': התראה לפני תביעה",
     description: 'מכתב התראה לפני הגשת תביעה - נשלח 14 יום לאחר המכתב הראשוני',
     icon: AlertTriangle,
-    color: 'orange',
+    statusColor: 'status-pending',
   },
   lawsuit_draft: {
     label: "שלב ג': טיוטת כתב תביעה",
     description: 'טיוטת כתב תביעה לבית המשפט לתביעות קטנות',
     icon: Scale,
-    color: 'red',
+    statusColor: 'status-rejected',
   },
 }
 
@@ -93,7 +93,6 @@ export default function TemplatesPage() {
 
       setTemplates(data || [])
 
-      // Initialize edited content with current templates
       const contentMap: Record<string, string> = {}
       data?.forEach((t) => {
         contentMap[t.template_type] = t.template_content
@@ -115,7 +114,6 @@ export default function TemplatesPage() {
       const template = templates.find((t) => t.template_type === templateType)
 
       if (template) {
-        // Update existing template
         const { error } = await supabase
           .from('letter_templates')
           .update({
@@ -127,7 +125,6 @@ export default function TemplatesPage() {
 
         if (error) throw error
       } else {
-        // Create new template
         const { error } = await supabase
           .from('letter_templates')
           .insert({
@@ -142,8 +139,6 @@ export default function TemplatesPage() {
 
       setSaveSuccess(templateType)
       await loadTemplates()
-
-      // Clear success message after 3 seconds
       setTimeout(() => setSaveSuccess(null), 3000)
     } catch (error) {
       console.error('Error saving template:', error)
@@ -158,7 +153,6 @@ export default function TemplatesPage() {
   }
 
   const getPreviewContent = (content: string) => {
-    // Replace tags with sample data for preview
     const sampleData: Record<string, string> = {
       '{{full_name}}': 'ישראל ישראלי',
       '{{id_number}}': '123456789',
@@ -193,28 +187,28 @@ export default function TemplatesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full bg-surface-raised">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary-orange border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">טוען תבניות...</p>
+          <div className="w-16 h-16 border-4 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-content-secondary">טוען תבניות...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-[1400px] mx-auto">
+    <div className="p-6 lg:p-8 max-w-[1400px] mx-auto bg-surface-raised min-h-screen rtl" dir="rtl">
       {/* Page Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">ניהול תבניות מכתבים</h1>
-        <p className="text-gray-600">
+        <h1 className="text-3xl font-bold text-content-primary mb-2">ניהול תבניות מכתבים</h1>
+        <p className="text-content-secondary">
           עריכת תבניות המכתבים המשפטיים - השתמש ב-Template Tags להזרקת נתונים אוטומטית
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-        <div className="flex border-b border-gray-200">
+      {/* Tabs - Updated to Dark Theme */}
+      <div className="card !p-0 mb-6 overflow-hidden">
+        <div className="flex border-b border-surface-border">
           {Object.entries(TEMPLATE_TYPES).map(([type, config]) => {
             const TabIcon = config.icon
             return (
@@ -223,8 +217,8 @@ export default function TemplatesPage() {
                 onClick={() => setActiveTab(type as typeof activeTab)}
                 className={`flex-1 px-6 py-4 text-sm font-semibold transition-colors relative ${
                   activeTab === type
-                    ? 'text-primary-orange border-b-2 border-primary-orange bg-orange-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    ? 'text-accent border-b-2 border-accent bg-surface-overlay'
+                    : 'text-content-tertiary hover:text-content-primary hover:bg-surface-overlay'
                 }`}
               >
                 <div className="flex items-center justify-center gap-2">
@@ -243,15 +237,15 @@ export default function TemplatesPage() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Main Editor */}
         <div className="lg:col-span-3 space-y-6">
-          {/* Template Info */}
-          <div className={`bg-${currentConfig.color}-50 border border-${currentConfig.color}-200 rounded-lg p-4`}>
+          {/* Template Info Card */}
+          <div className={`bg-surface-overlay border border-surface-border rounded-lg p-4`}>
             <div className="flex items-start gap-3">
-              <Icon className={`w-6 h-6 text-${currentConfig.color}-600 mt-0.5`} />
+              <Icon className={`w-6 h-6 text-accent mt-0.5`} />
               <div>
-                <h2 className="font-bold text-gray-900">{currentConfig.label}</h2>
-                <p className="text-sm text-gray-600 mt-1">{currentConfig.description}</p>
+                <h2 className="font-bold text-content-primary">{currentConfig.label}</h2>
+                <p className="text-sm text-content-secondary mt-1">{currentConfig.description}</p>
                 {currentTemplate && (
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-content-tertiary mt-2">
                     גרסה {currentTemplate.version} | עודכן לאחרונה: {new Date(currentTemplate.updated_at).toLocaleDateString('he-IL')}
                   </p>
                 )}
@@ -259,17 +253,17 @@ export default function TemplatesPage() {
             </div>
           </div>
 
-          {/* Editor */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <h3 className="font-semibold text-gray-900">עורך תבנית</h3>
+          {/* Editor Card */}
+          <div className="card !p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border bg-surface-overlay">
+              <h3 className="font-semibold text-content-primary">עורך תבנית</h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowPreview(!showPreview)}
                   className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
                     showPreview
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      ? 'bg-accent/20 text-accent'
+                      : 'bg-surface-border text-content-secondary hover:bg-surface-border/80'
                   }`}
                 >
                   <Eye className="w-4 h-4" />
@@ -278,7 +272,7 @@ export default function TemplatesPage() {
                 <button
                   onClick={() => handleSave(activeTab)}
                   disabled={saving === activeTab}
-                  className="px-4 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 flex items-center gap-1.5"
+                  className="btn-primary flex items-center gap-1.5 !py-1.5 !px-4"
                 >
                   {saving === activeTab ? (
                     <>
@@ -287,7 +281,7 @@ export default function TemplatesPage() {
                     </>
                   ) : saveSuccess === activeTab ? (
                     <>
-                      <CheckCircle className="w-4 h-4" />
+                      <CheckCircle className="w-4 h-4 text-status-approved" />
                       נשמר!
                     </>
                   ) : (
@@ -301,13 +295,13 @@ export default function TemplatesPage() {
             </div>
 
             {showPreview ? (
-              <div className="p-4">
-                <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              <div className="p-4 bg-surface-raised">
+                <div className="bg-surface-overlay rounded-lg p-6 border border-surface-border">
+                  <h4 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
                     <Eye className="w-4 h-4" />
                     תצוגה מקדימה (עם נתוני דוגמה)
                   </h4>
-                  <div className="bg-white rounded border border-gray-300 p-6 whitespace-pre-wrap font-mono text-sm text-gray-800 max-h-[500px] overflow-y-auto" dir="rtl">
+                  <div className="bg-surface-raised rounded border border-surface-border p-6 whitespace-pre-wrap font-mono text-sm text-content-primary max-h-[500px] overflow-y-auto" dir="rtl">
                     {getPreviewContent(editedContent[activeTab] || '')}
                   </div>
                 </div>
@@ -316,7 +310,7 @@ export default function TemplatesPage() {
               <textarea
                 value={editedContent[activeTab] || ''}
                 onChange={(e) => setEditedContent({ ...editedContent, [activeTab]: e.target.value })}
-                className="w-full h-[500px] p-4 font-mono text-sm border-0 focus:ring-0 resize-none"
+                className="w-full h-[500px] p-4 font-mono text-sm bg-surface-raised text-content-primary border-0 focus:ring-1 focus:ring-accent resize-none"
                 dir="rtl"
                 placeholder="הזן את תוכן התבנית כאן..."
               />
@@ -324,16 +318,16 @@ export default function TemplatesPage() {
           </div>
         </div>
 
-        {/* Sidebar - Available Tags */}
+        {/* Sidebar */}
         <div className="space-y-6">
-          {/* Tags Reference */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Info className="w-4 h-4 text-blue-500" />
+          {/* Tags Reference Card */}
+          <div className="card !p-0 overflow-hidden">
+            <div className="px-4 py-3 border-b border-surface-border bg-surface-overlay">
+              <h3 className="font-semibold text-content-primary flex items-center gap-2">
+                <Info className="w-4 h-4 text-accent" />
                 תגיות זמינות
               </h3>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-content-tertiary mt-1">
                 לחץ להעתקה
               </p>
             </div>
@@ -343,26 +337,26 @@ export default function TemplatesPage() {
                   <button
                     key={item.tag}
                     onClick={() => handleCopyTag(item.tag)}
-                    className="w-full text-right px-3 py-2 bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors group"
+                    className="w-full text-right px-3 py-2 bg-surface-overlay hover:bg-surface-border rounded-lg transition-colors group"
                   >
                     <div className="flex items-center justify-between">
-                      <Copy className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <code className="text-xs font-mono text-blue-600">{item.tag}</code>
+                      <Copy className="w-3.5 h-3.5 text-content-tertiary group-hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <code className="text-xs font-mono text-accent">{item.tag}</code>
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.description}</p>
+                    <p className="text-xs text-content-tertiary mt-0.5">{item.description}</p>
                   </button>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Quick Actions */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <h3 className="font-semibold text-gray-900 mb-3">פעולות מהירות</h3>
+          {/* Quick Actions Card */}
+          <div className="card">
+            <h3 className="font-semibold text-content-primary mb-3">פעולות מהירות</h3>
             <div className="space-y-2">
               <button
                 onClick={loadTemplates}
-                className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full px-4 py-2 bg-surface-overlay hover:bg-surface-border text-content-secondary text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 border border-surface-border"
               >
                 <RefreshCw className="w-4 h-4" />
                 רענן תבניות
@@ -370,10 +364,10 @@ export default function TemplatesPage() {
             </div>
           </div>
 
-          {/* Tips */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-semibold text-blue-900 mb-2">טיפים</h3>
-            <ul className="text-xs text-blue-800 space-y-1">
+          {/* Tips Card */}
+          <div className="bg-surface-overlay border border-accent/20 rounded-lg p-4 shadow-glass">
+            <h3 className="font-semibold text-accent mb-2">טיפים</h3>
+            <ul className="text-xs text-content-secondary space-y-1">
               <li>- השתמש בתגיות לשילוב אוטומטי של נתונים</li>
               <li>- שמור שינויים לפני מעבר לתבנית אחרת</li>
               <li>- בדוק בתצוגה מקדימה לפני שמירה</li>

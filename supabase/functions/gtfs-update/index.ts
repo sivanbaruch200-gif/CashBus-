@@ -115,16 +115,12 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    console.log('Starting GTFS update...')
-
     // Fetch GTFS ZIP file - try multiple URLs with detailed error handling
     let zipBuffer: ArrayBuffer | null = null
     let successUrl = ''
     const errors: string[] = []
 
     for (const url of GTFS_URLS) {
-      console.log(`Trying to fetch GTFS from: ${url}`)
-
       try {
         const response = await fetch(url, {
           headers: {
@@ -140,8 +136,6 @@ Deno.serve(async (req) => {
         // Log response details for debugging
         const contentType = response.headers.get('content-type') || 'unknown'
         const contentLength = response.headers.get('content-length') || 'unknown'
-        console.log(`Response from ${url}: status=${response.status}, content-type=${contentType}, content-length=${contentLength}`)
-
         if (!response.ok) {
           // Try to get error body for debugging
           const errorBody = await response.text().catch(() => 'Could not read response body')
@@ -179,7 +173,6 @@ Deno.serve(async (req) => {
         // Success!
         zipBuffer = buffer
         successUrl = url
-        console.log(`Successfully downloaded GTFS from ${url} (${buffer.byteLength} bytes)`)
         break
 
       } catch (fetchError) {
@@ -193,7 +186,6 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to download GTFS from all sources. Errors:\n${errors.join('\n')}`)
     }
 
-    console.log(`Using GTFS from: ${successUrl}`)
     const zip = await JSZip.loadAsync(zipBuffer)
 
     // Extract files
@@ -211,8 +203,6 @@ Deno.serve(async (req) => {
 
     const routes = parseCSV<GtfsRoute>(routesContent)
     const stops = parseCSV<GtfsStop>(stopsContent)
-
-    console.log(`Parsed ${routes.length} routes, ${stops.length} stops`)
 
     // Update routes in batches
     const routeBatchSize = 1000
@@ -296,8 +286,6 @@ Deno.serve(async (req) => {
       },
       timestamp: new Date().toISOString()
     }
-
-    console.log('GTFS update completed:', result)
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

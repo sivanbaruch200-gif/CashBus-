@@ -118,8 +118,6 @@ export async function POST(request: NextRequest) {
     // Make API call to Stride
     const strideUrl = `${STRIDE_API_BASE}/siri_vehicle_locations/list?${params}`
 
-    console.log('Calling Stride API:', strideUrl)
-
     const strideResponse = await fetch(strideUrl, {
       headers: {
         'Accept': 'application/json',

@@ -10,13 +10,90 @@
  * 4. User pays commission → Mark as paid, complete workflow
  */
 
-import { supabase } from './supabase'
+import { Resend } from 'resend'
+import Stripe from 'stripe'
+import { createClient } from '@supabase/supabase-js'
 import {
   calculateCommission,
   createCommissionPaymentRequest,
   getClaimSettlementProof,
   isReadyForCommissionCollection,
 } from './commissionService'
+import { getAdminEmail } from './settingsService'
+
+// Lazy-initialized clients (avoid top-level throws that break build)
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!url || !key) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_KEY environment variables')
+  }
+  return createClient(url, key)
+}
+
+function getResend(): Resend {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) {
+    throw new Error('Missing RESEND_API_KEY environment variable')
+  }
+  return new Resend(apiKey)
+}
+
+function getStripe(): Stripe {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) {
+    throw new Error('Missing STRIPE_SECRET_KEY environment variable')
+  }
+  return new Stripe(key, { apiVersion: '2026-01-28.clover' })
+}
+
+// Admin email is fetched dynamically from app_settings table via getAdminEmail()
+
+/**
+ * Send email directly via Resend SDK + log to email_logs
+ */
+async function sendEmail(params: {
+  to: string
+  subject: string
+  body: string
+  claimId?: string
+  userId?: string
+  emailType?: string
+}): Promise<void> {
+  const resend = getResend()
+
+  const html = `
+    <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <pre style="white-space: pre-wrap; font-family: inherit;">${params.body}</pre>
+    </div>
+  `
+
+  const { data, error } = await resend.emails.send({
+    from: 'CashBus <noreply@cashbuses.com>',
+    replyTo: 'cash.bus200@gmail.com',
+    to: [params.to],
+    subject: params.subject,
+    html,
+  })
+
+  // Log to email_logs
+  await getSupabase().from('email_logs').insert({
+    message_id: data?.id || null,
+    from_email: 'noreply@cashbuses.com',
+    to_email: params.to,
+    subject: params.subject,
+    status: error ? 'failed' : 'sent',
+    error_message: error?.message || null,
+    user_id: params.userId || null,
+    claim_id: params.claimId || null,
+    email_type: params.emailType || 'collection_workflow',
+    metadata: {},
+  })
+
+  if (error) {
+    throw new Error(`Failed to send email: ${error.message}`)
+  }
+}
 
 // =====================================================
 // Workflow Triggers
@@ -29,7 +106,7 @@ import {
 export async function triggerCollectionWorkflow(claimId: string): Promise<void> {
   try {
     // 1. Get claim details
-    const { data: claim, error: claimError } = await supabase
+    const { data: claim, error: claimError } = await getSupabase()
       .from('claims')
       .select('*, profiles(*)')
       .eq('id', claimId)
@@ -42,7 +119,6 @@ export async function triggerCollectionWorkflow(claimId: string): Promise<void> 
     // 2. Check if already has settlement proof
     const hasProof = await getClaimSettlementProof(claimId)
     if (hasProof) {
-      console.log('Claim already has settlement proof, skipping email')
       return
     }
 
@@ -71,7 +147,7 @@ export async function handleSettlementProofUploaded(
 ): Promise<void> {
   try {
     // 1. Get settlement proof
-    const { data: proof, error } = await supabase
+    const { data: proof, error } = await getSupabase()
       .from('settlement_proofs')
       .select('*')
       .eq('id', proofId)
@@ -112,7 +188,7 @@ export async function handleSettlementProofVerified(
     const commissionAmount = calculateCommission(verifiedAmount)
 
     // 2. Get claim and user details
-    const { data: claim, error } = await supabase
+    const { data: claim, error } = await getSupabase()
       .from('claims')
       .select('user_id')
       .eq('id', claimId)
@@ -141,7 +217,7 @@ export async function handleSettlementProofVerified(
     )
 
     // 5. Update payment request with Stripe URL
-    await supabase
+    await getSupabase()
       .from('payment_requests')
       .update({
         stripe_payment_url: stripeInvoiceUrl,
@@ -201,15 +277,13 @@ ${process.env.NEXT_PUBLIC_SITE_URL}/claims/${claim.id}
 *עמלת הצלחה: 15% בלבד - אנחנו מרוויחים רק כשאתה מרוויח!*
   `.trim()
 
-  // TODO: Send via email API
-  await fetch('/api/send-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: profile.email,
-      subject: '🎉 מזל טוב! התביעה אושרה - נא להעלות אסמכתא',
-      body: emailBody,
-    }),
+  await sendEmail({
+    to: profile.email,
+    subject: '🎉 מזל טוב! התביעה אושרה - נא להעלות אסמכתא',
+    body: emailBody,
+    claimId: claim.id,
+    userId: claim.user_id,
+    emailType: 'settlement_proof_request',
   })
 }
 
@@ -221,7 +295,7 @@ async function sendUserConfirmationEmail(
   claimedAmount: number
 ): Promise<void> {
   // Get user email
-  const { data: claim } = await supabase
+  const { data: claim } = await getSupabase()
     .from('claims')
     .select('user_id, profiles(email, full_name)')
     .eq('id', claimId)
@@ -251,14 +325,13 @@ async function sendUserConfirmationEmail(
 צוות CashBus
   `.trim()
 
-  await fetch('/api/send-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: profile.email,
-      subject: '✅ האסמכתא התקבלה - בבדיקה',
-      body: emailBody,
-    }),
+  await sendEmail({
+    to: profile.email,
+    subject: '✅ האסמכתא התקבלה - בבדיקה',
+    body: emailBody,
+    claimId,
+    userId: claim.user_id,
+    emailType: 'settlement_proof_confirmation',
   })
 }
 
@@ -269,9 +342,6 @@ async function sendAdminVerificationRequest(
   claimId: string,
   proof: any
 ): Promise<void> {
-  // TODO: Get admin email from settings
-  const adminEmail = 'admin@cashbus.co.il'
-
   const emailBody = `
 אסמכתא חדשה לאימות!
 
@@ -283,14 +353,14 @@ async function sendAdminVerificationRequest(
 ${process.env.NEXT_PUBLIC_SITE_URL}/admin/claims/${claimId}
   `.trim()
 
-  await fetch('/api/send-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: adminEmail,
-      subject: `🔔 אסמכתא חדשה לאימות - תביעה ${claimId.slice(0, 8)}`,
-      body: emailBody,
-    }),
+  const adminEmail = await getAdminEmail()
+
+  await sendEmail({
+    to: adminEmail,
+    subject: `🔔 אסמכתא חדשה לאימות - תביעה ${claimId.slice(0, 8)}`,
+    body: emailBody,
+    claimId,
+    emailType: 'admin_verification_request',
   })
 }
 
@@ -302,7 +372,7 @@ async function sendCommissionInvoiceEmail(
   commissionAmount: number,
   stripeInvoiceUrl: string
 ): Promise<void> {
-  const { data: claim } = await supabase
+  const { data: claim } = await getSupabase()
     .from('claims')
     .select('user_id, profiles(email, full_name), actual_paid_amount')
     .eq('id', claimId)
@@ -333,14 +403,13 @@ ${stripeInvoiceUrl}
 צוות CashBus
   `.trim()
 
-  await fetch('/api/send-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: profile.email,
-      subject: `💰 חשבונית לתשלום - עמלת הצלחה ${commissionAmount} ש"ח`,
-      body: emailBody,
-    }),
+  await sendEmail({
+    to: profile.email,
+    subject: `💰 חשבונית לתשלום - עמלת הצלחה ${commissionAmount} ש"ח`,
+    body: emailBody,
+    claimId,
+    userId: claim.user_id,
+    emailType: 'commission_invoice',
   })
 }
 
@@ -349,40 +418,73 @@ ${stripeInvoiceUrl}
 // =====================================================
 
 /**
- * Generate Stripe invoice for commission payment
+ * Generate Stripe invoice for commission payment.
+ * Calls Stripe SDK directly (server-side).
  */
 async function generateStripeInvoice(
   userId: string,
   claimId: string,
   amount: number
 ): Promise<string> {
-  try {
-    // TODO: Implement actual Stripe integration
-    // For now, return mock URL
+  const stripe = getStripe()
+  const supabase = getSupabase()
 
-    const response = await fetch('/api/stripe/create-invoice', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        claimId,
-        amount,
-        currency: 'ILS',
-        description: `עמלת הצלחה - תביעה ${claimId.slice(0, 8)}`,
-      }),
-    })
+  // Get user profile for Stripe customer creation
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, email, phone')
+    .eq('id', userId)
+    .single()
 
-    if (!response.ok) {
-      throw new Error('Failed to create Stripe invoice')
-    }
-
-    const { invoiceUrl } = await response.json()
-    return invoiceUrl
-  } catch (error) {
-    console.error('Error generating Stripe invoice:', error)
-    // Return mock URL for development
-    return `https://invoice.stripe.com/mock/${claimId}`
+  if (!profile || !profile.email) {
+    throw new Error('User profile not found or missing email')
   }
+
+  // Find or create Stripe customer
+  const existingCustomers = await stripe.customers.list({
+    email: profile.email,
+    limit: 1,
+  })
+
+  let customer: Stripe.Customer
+  if (existingCustomers.data.length > 0) {
+    customer = existingCustomers.data[0]
+  } else {
+    customer = await stripe.customers.create({
+      email: profile.email,
+      name: profile.full_name || undefined,
+      phone: profile.phone || undefined,
+      metadata: { user_id: userId },
+    })
+  }
+
+  // Create invoice
+  const invoice = await stripe.invoices.create({
+    customer: customer.id,
+    collection_method: 'send_invoice',
+    days_until_due: 14,
+    currency: 'ils',
+    description: `עמלת הצלחה - תביעה ${claimId.slice(0, 8)}`,
+    metadata: {
+      claim_id: claimId,
+      user_id: userId,
+      payment_type: 'commission',
+    },
+  })
+
+  // Add invoice item (amount in agorot)
+  await stripe.invoiceItems.create({
+    customer: customer.id,
+    invoice: invoice.id,
+    amount: Math.round(amount * 100),
+    currency: 'ils',
+    description: 'עמלת הצלחה (15%)',
+  })
+
+  // Finalize to make it payable
+  const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
+
+  return finalizedInvoice.hosted_invoice_url || `https://invoice.stripe.com/i/${invoice.id}`
 }
 
 // =====================================================
@@ -397,7 +499,7 @@ async function logWorkflowAction(
   actionType: string,
   description: string
 ): Promise<void> {
-  const { error } = await supabase.from('execution_logs').insert({
+  const { error } = await getSupabase().from('execution_logs').insert({
     claim_id: claimId,
     action_type: actionType,
     description,
@@ -441,7 +543,7 @@ export async function handleClaimStatusChange(
  */
 export async function sendCommissionPaymentReminders(): Promise<void> {
   // Get all claims with verified proofs but unpaid commission
-  const { data: claims, error } = await supabase
+  const { data: claims, error } = await getSupabase()
     .from('claims')
     .select('*, settlement_proofs(*)')
     .eq('commission_paid', false)
@@ -454,7 +556,7 @@ export async function sendCommissionPaymentReminders(): Promise<void> {
 
   for (const claim of claims) {
     // Check if payment request was sent more than 3 days ago
-    const { data: paymentRequest } = await supabase
+    const { data: paymentRequest } = await getSupabase()
       .from('payment_requests')
       .select('*')
       .eq('claim_id', claim.id)
@@ -483,7 +585,7 @@ async function sendPaymentReminder(
   claimId: string,
   paymentUrl: string
 ): Promise<void> {
-  const { data: claim } = await supabase
+  const { data: claim } = await getSupabase()
     .from('claims')
     .select('profiles(email, full_name), system_commission_due')
     .eq('id', claimId)
@@ -509,13 +611,11 @@ ${paymentUrl}
 צוות CashBus
   `.trim()
 
-  await fetch('/api/send-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: profile.email,
-      subject: '🔔 תזכורת: תשלום עמלת הצלחה',
-      body: emailBody,
-    }),
+  await sendEmail({
+    to: profile.email,
+    subject: '🔔 תזכורת: תשלום עמלת הצלחה',
+    body: emailBody,
+    claimId,
+    emailType: 'commission_payment_reminder',
   })
 }

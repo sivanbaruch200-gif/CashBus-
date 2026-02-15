@@ -88,3 +88,60 @@ export function downloadPDF(blob: Blob, filename: string) {
   link.click();
   document.body.removeChild(link);
 }
+
+// Type for warning letter data
+export interface WarningLetterData {
+  incidentId: string
+  incidentType: 'delay' | 'no_stop' | 'no_arrival'
+  incidentDate: string
+  busLine: string
+  busCompany: string
+  stationName: string
+  customerName: string
+  customerPhone: string
+  customerId: string
+  baseCompensation: number
+  damageCompensation: number
+  totalCompensation: number
+  legalBasis: string
+}
+
+/**
+ * Generate warning letter PDF - uses the 'demand' template
+ */
+export async function generateWarningLetterPDF(data: WarningLetterData): Promise<Blob> {
+  const templateData = {
+    incidentId: data.incidentId,
+    customerName: data.customerName,
+    idNumber: data.customerId,
+    phone: data.customerPhone,
+    busCompany: data.busCompany,
+    busLine: data.busLine,
+    stationName: data.stationName,
+    incidentDate: new Date(data.incidentDate).toLocaleDateString('he-IL'),
+    description: getIncidentTypeText(data.incidentType),
+    baseCompensation: data.baseCompensation,
+    damageAmount: data.damageCompensation,
+    totalAmount: data.totalCompensation
+  }
+
+  return generateLegalPDF('demand', templateData)
+}
+
+/**
+ * Generate filename for warning letter
+ */
+export function generateWarningLetterFilename(customerName: string, claimId: string): string {
+  const date = new Date().toISOString().split('T')[0]
+  const safeName = customerName.replace(/[^א-תa-zA-Z0-9]/g, '_')
+  return `CashBus_Warning_${safeName}_${claimId.slice(0, 8)}_${date}.pdf`
+}
+
+function getIncidentTypeText(type: 'delay' | 'no_stop' | 'no_arrival'): string {
+  switch (type) {
+    case 'delay': return 'איחור בקו'
+    case 'no_stop': return 'האוטובוס לא עצר בתחנה'
+    case 'no_arrival': return 'האוטובוס לא הגיע'
+    default: return 'תקלה בשירות'
+  }
+}

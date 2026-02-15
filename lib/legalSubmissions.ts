@@ -476,19 +476,46 @@ export async function retrySubmission(submissionId: string): Promise<boolean> {
   }
 
   if (submission.retry_count >= submission.max_retries) {
-    console.error('Max retries reached for submission:', submissionId)
     return false
   }
 
-  // Increment retry count
+  // Increment retry count and reset status
   await supabase
     .from('legal_submissions')
     .update({
       retry_count: submission.retry_count + 1,
       submission_status: 'pending',
+      automation_error_message: null,
     })
     .eq('id', submissionId)
 
-  // TODO: Re-trigger submission via the orchestrator
-  return true
+  // Re-fetch claim and profile to re-trigger the orchestrator
+  const { data: claim } = await supabase
+    .from('claims')
+    .select('*')
+    .eq('id', submission.claim_id)
+    .single()
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', submission.user_id)
+    .single()
+
+  if (!claim || !profile) {
+    await updateSubmissionStatus(submissionId, 'failed', {
+      automation_error_message: 'Claim or profile not found for retry',
+    })
+    return false
+  }
+
+  // Re-trigger via the orchestrator
+  const result = await submitLegalDocument({
+    claim,
+    profile,
+    pdfUrl: submission.pdf_url,
+    pdfFilename: submission.pdf_filename,
+  })
+
+  return result.success
 }

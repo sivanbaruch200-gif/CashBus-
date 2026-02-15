@@ -4,7 +4,7 @@
  * Settlement Proof Upload Component
  *
  * Allows users to upload proof of payment (check photo, bank transfer screenshot)
- * Triggers automatic 15% commission calculation
+ * Triggers automatic 15% calculation
  */
 
 import { useState } from 'react'
@@ -109,23 +109,23 @@ export default function SettlementProofUpload({
 
   if (success) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-lg p-6" dir="rtl">
+      <div className="bg-status-approved-surface border border-status-approved/20 rounded-lg p-6" dir="rtl">
         <div className="flex items-center gap-3 mb-4">
-          <CheckCircle className="w-8 h-8 text-green-600" />
-          <h3 className="text-xl font-bold text-green-900">האסמכתא נקלטה בהצלחה!</h3>
+          <CheckCircle className="w-8 h-8 text-status-approved" />
+          <h3 className="text-xl font-bold text-content-primary">האסמכתא נקלטה בהצלחה!</h3>
         </div>
 
-        <div className="space-y-3 text-green-800">
+        <div className="space-y-3 text-status-approved">
           <p>✅ הקובץ הועלה למערכת</p>
           <p>✅ נשלחה הודעה לצוות האדמינים לאימות</p>
           <p>✅ תקבל אימייל עם חשבונית לאחר האימות</p>
 
-          <div className="mt-6 p-4 bg-white rounded-lg">
-            <div className="text-sm text-gray-600 mb-2">עמלה משוערת (15%):</div>
-            <div className="text-2xl font-bold text-orange-600">
+          <div className="mt-6 p-4 bg-surface-raised rounded-lg">
+            <div className="text-sm text-content-secondary mb-2">עמלה משוערת (15%):</div>
+            <div className="text-2xl font-bold text-accent">
               ₪{estimatedCommission.toLocaleString('he-IL', { minimumFractionDigits: 2 })}
             </div>
-            <div className="text-xs text-gray-500 mt-1">
+            <div className="text-xs text-content-tertiary mt-1">
               15% מ-₪{claimedAmount.toLocaleString('he-IL')}
             </div>
           </div>
@@ -135,19 +135,19 @@ export default function SettlementProofUpload({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6" dir="rtl">
+    <div className="bg-surface-raised border border-surface-border rounded-lg p-6" dir="rtl">
       <div className="flex items-center gap-3 mb-6">
-        <div className="bg-orange-100 p-3 rounded-full">
-          <Upload className="w-6 h-6 text-orange-600" />
+        <div className="bg-accent-surface p-3 rounded-full">
+          <Upload className="w-6 h-6 text-accent" />
         </div>
         <div>
           <h3 className="text-xl font-bold">העלאת אסמכתא לתשלום</h3>
-          <p className="text-sm text-gray-600">צלם/י או העלה/י תמונה של התשלום שקיבלת</p>
+          <p className="text-sm text-content-secondary">צלם/י או העלה/י תמונה של התשלום שקיבלת</p>
         </div>
       </div>
 
       {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg flex items-center gap-2">
+        <div className="mb-6 bg-status-rejected-surface border border-status-rejected/20 text-status-rejected p-4 rounded-lg flex items-center gap-2">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
           <span>{error}</span>
         </div>
@@ -161,48 +161,48 @@ export default function SettlementProofUpload({
             onClick={() => setProofType('bank_transfer')}
             className={`p-3 border-2 rounded-lg text-right transition-colors ${
               proofType === 'bank_transfer'
-                ? 'border-orange-500 bg-orange-50'
-                : 'border-gray-200 hover:border-gray-300'
+                ? 'border-accent bg-accent-surface'
+                : 'border-surface-border hover:border-surface-border'
             }`}
           >
             <div className="font-semibold">העברה בנקאית</div>
-            <div className="text-xs text-gray-600">צילום מסך מהבנק</div>
+            <div className="text-xs text-content-secondary">צילום מסך מהבנק</div>
           </button>
 
           <button
             onClick={() => setProofType('check_photo')}
             className={`p-3 border-2 rounded-lg text-right transition-colors ${
               proofType === 'check_photo'
-                ? 'border-orange-500 bg-orange-50'
-                : 'border-gray-200 hover:border-gray-300'
+                ? 'border-accent bg-accent-surface'
+                : 'border-surface-border hover:border-surface-border'
             }`}
           >
             <div className="font-semibold">המחאה</div>
-            <div className="text-xs text-gray-600">תמונה של המחאה</div>
+            <div className="text-xs text-content-secondary">תמונה של המחאה</div>
           </button>
 
           <button
             onClick={() => setProofType('cash_receipt')}
             className={`p-3 border-2 rounded-lg text-right transition-colors ${
               proofType === 'cash_receipt'
-                ? 'border-orange-500 bg-orange-50'
-                : 'border-gray-200 hover:border-gray-300'
+                ? 'border-accent bg-accent-surface'
+                : 'border-surface-border hover:border-surface-border'
             }`}
           >
             <div className="font-semibold">קבלה במזומן</div>
-            <div className="text-xs text-gray-600">קבלה על תשלום</div>
+            <div className="text-xs text-content-secondary">קבלה על תשלום</div>
           </button>
 
           <button
             onClick={() => setProofType('other')}
             className={`p-3 border-2 rounded-lg text-right transition-colors ${
               proofType === 'other'
-                ? 'border-orange-500 bg-orange-50'
-                : 'border-gray-200 hover:border-gray-300'
+                ? 'border-accent bg-accent-surface'
+                : 'border-surface-border hover:border-surface-border'
             }`}
           >
             <div className="font-semibold">אחר</div>
-            <div className="text-xs text-gray-600">סוג אחר</div>
+            <div className="text-xs text-content-secondary">סוג אחר</div>
           </button>
         </div>
       </div>
@@ -210,36 +210,36 @@ export default function SettlementProofUpload({
       {/* Amount Input */}
       <div className="mb-6">
         <label className="block text-sm font-semibold mb-2">
-          סכום שקיבלת <span className="text-red-500">*</span>
+          סכום שקיבלת <span className="text-status-rejected">*</span>
         </label>
         <div className="relative">
-          <DollarSign className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <DollarSign className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-content-tertiary" />
           <input
             type="number"
             value={claimedAmount || ''}
             onChange={(e) => setClaimedAmount(parseFloat(e.target.value) || 0)}
-            className="w-full pr-10 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-lg font-semibold"
+            className="w-full pr-10 px-4 py-3 border border-surface-border rounded-lg focus:ring-2 focus:ring-accent/40 focus:border-accent text-lg font-semibold"
             placeholder="0.00"
             min="0"
             step="0.01"
           />
         </div>
-        <div className="mt-2 text-sm text-gray-600">
-          עמלה משוערת (15%): <strong className="text-orange-600">₪{estimatedCommission.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</strong>
+        <div className="mt-2 text-sm text-content-secondary">
+          עמלה משוערת (15%): <strong className="text-accent">₪{estimatedCommission.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</strong>
         </div>
       </div>
 
       {/* File Upload */}
       <div className="mb-6">
         <label className="block text-sm font-semibold mb-2">
-          קובץ תמונה <span className="text-red-500">*</span>
+          קובץ תמונה <span className="text-status-rejected">*</span>
         </label>
 
         {!preview ? (
-          <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-orange-500 transition-colors bg-gray-50">
-            <Camera className="w-12 h-12 text-gray-400 mb-3" />
-            <span className="text-sm text-gray-600 mb-1">לחץ להעלאת תמונה</span>
-            <span className="text-xs text-gray-500">או גרור קובץ לכאן</span>
+          <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent transition-colors bg-surface-overlay">
+            <Camera className="w-12 h-12 text-content-tertiary mb-3" />
+            <span className="text-sm text-content-secondary mb-1">לחץ להעלאת תמונה</span>
+            <span className="text-xs text-content-tertiary">או גרור קובץ לכאן</span>
             <input
               type="file"
               accept="image/*"
@@ -252,14 +252,14 @@ export default function SettlementProofUpload({
             <img
               src={preview}
               alt="Preview"
-              className="w-full h-64 object-contain border border-gray-300 rounded-lg"
+              className="w-full h-64 object-contain border border-surface-border rounded-lg"
             />
             <button
               onClick={() => {
                 setFile(null)
                 setPreview(null)
               }}
-              className="absolute top-2 left-2 bg-red-500 text-white px-3 py-1 rounded-lg text-sm hover:bg-red-600"
+              className="absolute top-2 left-2 bg-status-rejected text-white px-3 py-1 rounded-lg text-sm hover:bg-status-rejected"
             >
               הסר
             </button>
@@ -273,16 +273,16 @@ export default function SettlementProofUpload({
         <textarea
           value={userNotes}
           onChange={(e) => setUserNotes(e.target.value)}
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+          className="w-full px-4 py-3 border border-surface-border rounded-lg focus:ring-2 focus:ring-accent/40 focus:border-accent"
           rows={3}
           placeholder="הוסף הערות או הסבר נוסף..."
         />
       </div>
 
       {/* Info Box */}
-      <div className="mb-6 bg-blue-50 border border-blue-200 p-4 rounded-lg">
-        <h4 className="font-semibold text-blue-900 mb-2">📌 חשוב לדעת</h4>
-        <ul className="text-sm text-blue-800 space-y-1">
+      <div className="mb-6 bg-surface-overlay border border-surface-border p-4 rounded-lg">
+        <h4 className="font-semibold text-status-legal mb-2">📌 חשוב לדעת</h4>
+        <ul className="text-sm text-status-legal space-y-1">
           <li>✅ האסמכתא תאומת על ידי צוות האדמינים</li>
           <li>✅ תקבל חשבונית לתשלום לאחר האימות</li>
           <li>✅ עמלת ההצלחה היא 15% בלבד מהסכום שקיבלת</li>
@@ -294,7 +294,7 @@ export default function SettlementProofUpload({
       <button
         onClick={handleUpload}
         disabled={uploading || !file || !claimedAmount}
-        className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 text-white font-bold py-4 px-6 rounded-lg transition-colors shadow-lg flex items-center justify-center gap-2"
+        className="w-full bg-accent hover:bg-accent-light disabled:bg-surface-border text-white font-bold py-4 px-6 rounded-lg transition-colors shadow-lg flex items-center justify-center gap-2"
       >
         {uploading ? (
           <>

@@ -141,8 +141,6 @@ export async function fetchGtfsData(): Promise<{
   agencies: GtfsAgency[]
 } | null> {
   try {
-    console.log('Fetching GTFS data from Ministry of Transportation...')
-
     const response = await fetch(GTFS_ZIP_URL, {
       headers: {
         'Accept': 'application/zip',
@@ -175,8 +173,6 @@ export async function fetchGtfsData(): Promise<{
     const routes = parseCSV<GtfsRoute>(routesContent)
     const stops = parseCSV<GtfsStop>(stopsContent)
     const agencies = agencyContent ? parseCSV<GtfsAgency>(agencyContent) : []
-
-    console.log(`Parsed ${routes.length} routes, ${stops.length} stops, ${agencies.length} agencies`)
 
     return { routes, stops, agencies }
   } catch (error) {
@@ -343,8 +339,6 @@ export async function runGtfsUpdate(): Promise<{
   }
 }> {
   try {
-    console.log('Starting GTFS data update...')
-
     const data = await fetchGtfsData()
     if (!data) {
       return {

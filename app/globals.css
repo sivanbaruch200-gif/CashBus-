@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Assistant:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -9,41 +9,111 @@
 }
 
 body {
-  font-family: 'Assistant', system-ui, sans-serif;
-  background-color: #FFFFFF;
+  font-family: 'Inter', 'Assistant', system-ui, sans-serif;
+  background-color: #0A0A0B;
+  color: #FAFAFA;
   direction: rtl;
 }
 
 @layer components {
+  /* Primary button — amber accent, used sparingly */
   .btn-primary {
-    @apply bg-primary-orange text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-200 active:scale-95;
+    @apply bg-accent text-white font-semibold py-3 px-6 rounded-xl
+           shadow-accent-glow hover:bg-accent-light
+           transition-all duration-300 active:scale-[0.98];
   }
 
+  /* Secondary button — glass style */
   .btn-secondary {
-    @apply bg-white text-primary-orange border-2 border-primary-orange font-semibold py-3 px-6 rounded-lg hover:bg-orange-50 transition-all duration-200;
+    @apply bg-surface-overlay text-content-primary border border-surface-border
+           font-semibold py-3 px-6 rounded-xl
+           hover:bg-surface-border hover:border-surface-border-light
+           transition-all duration-300;
   }
 
+  /* Glass card */
   .card {
-    @apply bg-white rounded-xl shadow-md p-6 border border-gray-100;
+    @apply bg-surface-raised rounded-2xl
+           border border-surface-border p-6
+           shadow-glass;
   }
 
+  /* Card with hover lift */
+  .card-interactive {
+    @apply bg-surface-raised rounded-2xl
+           border border-surface-border p-6
+           shadow-glass hover:shadow-card-hover hover:border-surface-border-light
+           transition-all duration-300;
+  }
+
+  /* Status badges — refined for dark theme */
   .status-badge {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium;
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
   }
 
   .status-badge-pending {
-    @apply bg-yellow-100 text-yellow-800;
+    @apply bg-status-pending-surface text-status-pending border border-status-pending/20;
   }
 
   .status-badge-approved {
-    @apply bg-green-100 text-green-800;
+    @apply bg-status-approved-surface text-status-approved border border-status-approved/20;
   }
 
   .status-badge-rejected {
-    @apply bg-red-100 text-red-800;
+    @apply bg-status-rejected-surface text-status-rejected border border-status-rejected/20;
   }
 
   .status-badge-legal {
-    @apply bg-blue-100 text-blue-800;
+    @apply bg-status-legal-surface text-status-legal border border-status-legal/20;
   }
+
+  /* Input fields — dark theme */
+  .input-field {
+    @apply w-full px-4 py-3 bg-surface-overlay border border-surface-border
+           rounded-xl text-content-primary placeholder-content-tertiary
+           focus:ring-2 focus:ring-accent/40 focus:border-accent/50
+           outline-none transition-all;
+  }
+
+  /* Section heading */
+  .heading-section {
+    @apply text-content-primary font-bold tracking-wide;
+  }
+
+  /* Stat number — for large numerical displays */
+  .stat-number {
+    @apply text-gold font-bold tabular-nums;
+  }
+}
+
+/* Refined animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Typewriter cursor */
+@keyframes blink-caret {
+  0%, 100% { border-color: #A1A1AA; }
+  50% { border-color: transparent; }
 }
