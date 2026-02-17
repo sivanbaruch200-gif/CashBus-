@@ -58,10 +58,34 @@ export async function POST(request: NextRequest) {
       to: [to],
       bcc: bccList,
       subject: subject,
-      html: `
-        <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <pre style="white-space: pre-wrap; font-family: inherit;">${emailBody}</pre>
-        </div>
+      html: `<!DOCTYPE html>
+        <html dir="rtl" lang="he">
+        <head><meta charset="utf-8"></head>
+        <body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: Arial, sans-serif; direction: rtl;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <!-- Header -->
+            <div style="background-color: #1e293b; color: white; padding: 20px 30px; border-radius: 8px 8px 0 0; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: bold;">CashBus Legal</h1>
+              <p style="margin: 5px 0 0 0; font-size: 13px; color: #94a3b8;">מכתב משפטי רשמי</p>
+            </div>
+            <!-- Body -->
+            <div style="background-color: #ffffff; padding: 30px; border: 1px solid #e2e8f0; border-top: none;">
+              <div style="font-size: 15px; line-height: 1.8; color: #1e293b; white-space: pre-wrap;">${emailBody}</div>
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 25px 0;">
+              <p style="font-size: 13px; color: #64748b; margin: 0;">
+                מכתב זה נשלח באמצעות מערכת CashBus.<br>
+                קובץ PDF מצורף להודעה זו מכיל את המכתב המלא.
+              </p>
+            </div>
+            <!-- Footer -->
+            <div style="background-color: #f8fafc; padding: 15px 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px; text-align: center;">
+              <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+                CashBus | legal@cashbuses.com | www.cashbuses.com
+              </p>
+            </div>
+          </div>
+        </body>
+        </html>
       `,
       attachments: [
         {

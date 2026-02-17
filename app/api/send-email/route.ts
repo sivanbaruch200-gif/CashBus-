@@ -41,10 +41,13 @@ export async function POST(request: NextRequest) {
       replyTo: 'cash.bus200@gmail.com',
       to: [to],
       subject: subject,
-      html: `
-        <div dir="rtl" style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      html: `<!DOCTYPE html>
+        <html dir="rtl" lang="he">
+        <head><meta charset="utf-8"></head>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; direction: rtl;">
           <pre style="white-space: pre-wrap; font-family: inherit;">${emailBody}</pre>
-        </div>
+        </body>
+        </html>
       `,
     })
 

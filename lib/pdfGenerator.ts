@@ -125,7 +125,7 @@ export async function generateWarningLetterPDF(data: WarningLetterData): Promise
     totalAmount: data.totalCompensation
   }
 
-  return generateLegalPDF('demand', templateData)
+  return generateLegalPDF('initial_warning', templateData)
 }
 
 /**
