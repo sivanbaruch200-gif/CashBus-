@@ -44,8 +44,11 @@ async function loadHebrewFont(doc: jsPDF): Promise<boolean> {
 
 /**
  * Process text for RTL rendering in jsPDF.
- * jsPDF renders characters left-to-right, so Hebrew text must be reversed.
- * Numbers and Latin characters are re-reversed to preserve their LTR order.
+ * jsPDF renders characters left-to-right, so the entire string is reversed.
+ * When the reader scans right-to-left, they see the original text order.
+ * Numbers and Latin text naturally read correctly because the reader's
+ * RTL scanning reverses them back to their original LTR order.
+ * Bracket characters are mirrored for correct RTL display.
  */
 function processRTL(text: string): string {
   if (!text) return ''
@@ -53,10 +56,14 @@ function processRTL(text: string): string {
   // Reverse entire string for RTL base direction
   const reversed = [...text].reverse().join('')
 
-  // Re-reverse LTR sequences (numbers, Latin letters, formatting chars)
-  return reversed.replace(/[a-zA-Z0-9₪$€,.\-+@\/\\]+/g, match =>
-    [...match].reverse().join('')
-  )
+  // Mirror bracket characters for correct RTL display
+  const mirrorMap: Record<string, string> = {
+    '(': ')', ')': '(',
+    '[': ']', ']': '[',
+    '{': '}', '}': '{',
+  }
+
+  return reversed.replace(/[()[\]{}]/g, char => mirrorMap[char] || char)
 }
 
 // ============================================

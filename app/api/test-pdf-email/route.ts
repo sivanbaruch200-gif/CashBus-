@@ -20,14 +20,18 @@ function getResend() {
 
 /**
  * Process text for RTL rendering in jsPDF.
- * Reverses Hebrew text while keeping numbers/Latin in correct order.
+ * Reverses entire string so RTL reading order recovers original text.
+ * Mirrors bracket characters for correct RTL display.
  */
 function processRTL(text: string): string {
   if (!text) return ''
   const reversed = [...text].reverse().join('')
-  return reversed.replace(/[a-zA-Z0-9₪$€,.\-+@\/\\]+/g, match =>
-    [...match].reverse().join('')
-  )
+  const mirrorMap: Record<string, string> = {
+    '(': ')', ')': '(',
+    '[': ']', ']': '[',
+    '{': '}', '}': '{',
+  }
+  return reversed.replace(/[()[\]{}]/g, char => mirrorMap[char] || char)
 }
 
 function generateTestPDF(fontBase64: string): Buffer {
