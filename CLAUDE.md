@@ -42,19 +42,27 @@
    - Compensation transferred to CashBus account first, then 80% forwarded to customer
 3. **Payment Collection:** CashBus bank account receives all compensation payments
 
-### Legal Guidelines (From Lawyer Consultation)
+### Legal Guidelines (From Lawyer Consultations - Updated 2026-02-17)
 **Key Principles:**
 - System generates letters based on USER-PROVIDED information = legitimate
 - User clicks "Send" = user is the sender, not CashBus
 - CashBus is a **technology platform**, NOT a law firm
 - No unauthorized practice of law (הסגת גבול המקצוע)
+- **Lawyer clarified:** If CashBus sells a "letter drafting service" = could be unauthorized practice.
+  If CashBus offers a subscription to an app/software that generates letters from USER-INPUT data = boundary is blurred (favorable for CashBus)
+- **Same applies to lawsuit drafts** - app generates PDF, USER files it themselves
 
 **Demand Letter Guidelines:**
 - **Deadline:** 21 days (not 2 days) - more reasonable for response
+- **Content:** "במכתב אפשר לכתוב מה שרוצים" - no legal restrictions on demand letter content
+- **Compensation amounts:** No fixed amount in law for breach of contract (bus not arriving).
+  Can base demands on transportation regulations (תקנות 428ג, 399א) + interest escalation
+- **DO NOT specify amounts as if from regulation** - there is no regulation specifying amounts
 - **Threat Strategy:** Threaten to report to Ministry of Transportation (משרד התחבורה)
   - DO NOT actually send complaints to Ministry
+  - Keep it as a THREAT in the letter, don't actually contact the regulator
   - Ministry doesn't handle compensation - only courts do
-- **Reminders:** Weekly reminders after initial deadline
+- **Reminders:** Weekly/biweekly reminders (NOT every 2 days - that's excessive and could be considered harassment)
 
 **Legal Precedent:**
 - Case: תק (י-ם) 5312/07 (Jerusalem Small Claims Court, 31.03.2008)
@@ -90,10 +98,25 @@
 
 ## Current Status
 - **Phase:** 4 - Legal Automation & Admin System
-- **Last Updated:** 2026-02-14
-- **Status:** In Progress - Visual Refactor Complete, Build Passing
+- **Last Updated:** 2026-02-17
+- **Status:** In Progress - PDF Hebrew Fix Deployed, Template Updates Needed
 
-## Recent Updates (2026-02-14)
+## Recent Updates (2026-02-17)
+### PDF Hebrew Rendering - Fixed & Deployed:
+1. ✅ **Hebrew font** - Noto Sans Hebrew loaded from `public/fonts/NotoSansHebrew-Regular.ttf`
+2. ✅ **processRTL()** - Fixed: simple full reversal + bracket mirroring (removed broken LTR re-reversal that caused numbers to display backwards)
+3. ✅ **Professional PDF layout** - Header + separator + footer with Ref ID + page numbers
+4. ✅ **Letter Queue real data** - Fetches actual incident data instead of hardcoded values
+5. ✅ **submissionId fix** - Corrected claimId → submissionId for email logging
+6. ⏳ **Test PDF endpoint** - `app/api/test-pdf-email/route.ts` exists for testing (DELETE after verification)
+7. ⏳ **Awaiting verification** - Need to test that RTL fix actually displays correctly
+
+### Template Updates Needed (Based on Lawyer Feedback):
+- **Remove specific compensation amounts** from lawsuit_draft template (אין תקנה בנוגע לסכום)
+- **Update reminder frequency** from every 2 days to weekly/biweekly
+- **Rephrase demand basis** - reference regulations + interest, not specific NIS amounts
+
+## Previous Updates (2026-02-14)
 ### Visual Refactor (Dark Theme) - Completed:
 All 16+ files migrated from old Tailwind classes (bg-white, text-gray-*, bg-orange-*) to new dark theme design tokens (bg-surface-raised, text-content-primary, bg-accent, etc.). Tokens defined in `tailwind.config.js` and `globals.css`.
 
@@ -204,17 +227,35 @@ Questions sent regarding:
 - **Terms of Service:** `app/terms/page.tsx` - Full terms including 80/20 model
 - **Privacy Policy:** `app/privacy/page.tsx` - Data collection & handling
 
-## Pending Legal Review Items
-**Status:** שאלות נשלחו לעורכת דין (2026-02-06) - ממתינים לתשובה
+## Lawyer Consultation Results (2026-02-17)
+**Status:** ✅ תשובות התקבלו מעורך הדין
 
-Questions sent:
-1. 📨 עמלת הצלחה (20%) - האם להעביר כסף דרך חשבון CashBus דורש רישיון?
-2. 📨 ראיות GPS+SIRI - האם מהוות בסיס משפטי מספיק?
-3. 📨 איחוד תביעות של משתמשים שונים לתביעה אחת
-4. 📨 תנאי שימוש - נוסח מקובל / מה חייב להיכלל?
-5. 📨 רישום מאגרי מידע - האם חובה לפי חוק הגנת הפרטיות?
+### Questions & Answers:
+1. **הסגת גבול המקצוע (Unauthorized Practice):**
+   - ✅ אם המערכת מציעה מינוי לאפליקציה שמייצרת מכתבים מנתוני המשתמש → הגבול מטשטש (בסדר)
+   - ⚠️ אם מוכרים "שירות עריכת מכתב בשם הלקוח" → זה יכול להיחשב הסגת גבול
+   - **מסקנה:** CashBus = פלטפורמת טכנולוגיה, לא שירות משפטי
 
-Additional items to clarify (not yet sent):
+2. **נקיבת סכום פיצוי:**
+   - ✅ "במכתב אפשר לכתוב מה שרוצים אין חוקיות"
+   - ⚠️ אין בחוק סכום פיצוי קבוע - לא לכתוב סכומים כאילו יש תקנה ספציפית
+   - **מסקנה:** להסיר סכום ספציפי מהתבניות, לבסס על תקנות + ריבית
+
+3. **תזכורות אוטומטיות:**
+   - ❌ כל יומיים = מוגזם, עלול להיחשב הטרדה
+   - ✅ שבוע/שבועיים = סביר
+   - **מסקנה:** לעדכן תדירות תזכורות ל-7 ימים minimum
+
+4. **גוף היעד למכתב:**
+   - ✅ אין חובה חוקית לשלוח לגוף ספציפי
+   - ✅ פנייה לגוף רגולטורי = מנוף לחץ טוב
+   - **מסקנה:** להשאיר כאיום במכתב, לא לשלוח בפועל למשרד התחבורה
+
+5. **כתב תביעה PDF:**
+   - ✅ אותו עיקרון כמו סעיף 1 - האפליקציה מייצרת, המשתמש מגיש בעצמו
+   - **מסקנה:** זה בסדר, כל עוד המשתמש הוא שמגיש
+
+### Still pending (not yet sent):
 - מכתב התראה במייל vs. דואר רשום
 - הסכמת הורים לקטינים - נוסח נדרש
 - ביטוח אחריות מקצועית
