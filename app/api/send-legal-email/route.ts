@@ -37,9 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     // CRITICAL: Ensure Ministry is ALWAYS BCC'd
-    // TODO: TESTING MODE - Ministry BCC temporarily disabled for testing
-    // Restore after testing: const bccList = [MINISTRY_EMAIL]
-    const bccList: string[] = []
+    const bccList = [MINISTRY_EMAIL]
     if (bcc && bcc !== MINISTRY_EMAIL) {
       bccList.push(bcc)
     }
