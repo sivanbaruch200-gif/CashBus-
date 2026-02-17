@@ -1,11 +1,70 @@
 import jsPDF from 'jspdf'
 import { supabase } from './supabase'
 
+// ============================================
+// Font Management
+// ============================================
+
+let hebrewFontBase64: string | null = null
+
 /**
- * פונקציה להחלפת תגיות בטקסט בנתונים אמיתיים
+ * Load Noto Sans Hebrew font and register with jsPDF
+ * Font is served from public/fonts/NotoSansHebrew-Regular.ttf
  */
-function fillTemplate(template: string, data: any) {
-  let filled = template;
+async function loadHebrewFont(doc: jsPDF): Promise<boolean> {
+  try {
+    if (!hebrewFontBase64) {
+      const response = await fetch('/fonts/NotoSansHebrew-Regular.ttf')
+      if (!response.ok) {
+        console.error('Failed to fetch Hebrew font:', response.status)
+        return false
+      }
+      const buffer = await response.arrayBuffer()
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i])
+      }
+      hebrewFontBase64 = btoa(binary)
+    }
+
+    doc.addFileToVFS('NotoSansHebrew-Regular.ttf', hebrewFontBase64)
+    doc.addFont('NotoSansHebrew-Regular.ttf', 'NotoSansHebrew', 'normal')
+    doc.setFont('NotoSansHebrew')
+    return true
+  } catch (err) {
+    console.error('Error loading Hebrew font:', err)
+    return false
+  }
+}
+
+// ============================================
+// RTL Text Processing
+// ============================================
+
+/**
+ * Process text for RTL rendering in jsPDF.
+ * jsPDF renders characters left-to-right, so Hebrew text must be reversed.
+ * Numbers and Latin characters are re-reversed to preserve their LTR order.
+ */
+function processRTL(text: string): string {
+  if (!text) return ''
+
+  // Reverse entire string for RTL base direction
+  const reversed = [...text].reverse().join('')
+
+  // Re-reverse LTR sequences (numbers, Latin letters, formatting chars)
+  return reversed.replace(/[a-zA-Z0-9₪$€,.\-+@\/\\]+/g, match =>
+    [...match].reverse().join('')
+  )
+}
+
+// ============================================
+// Template Processing
+// ============================================
+
+function fillTemplate(template: string, data: any): string {
+  let filled = template
   const mapping: Record<string, string> = {
     '{{full_name}}': data.customerName || '',
     '{{id_number}}': data.idNumber || '',
@@ -24,72 +83,136 @@ function fillTemplate(template: string, data: any) {
     '{{claim_id}}': data.incidentId?.slice(0, 8) || '',
     '{{today_date}}': new Date().toLocaleDateString('he-IL'),
     '{{court_city}}': data.courtCity || 'תל אביב',
-    '{{initial_letter_date}}': data.initialLetterDate || ''
-  };
+    '{{initial_letter_date}}': data.initialLetterDate || '',
+  }
 
   Object.entries(mapping).forEach(([tag, value]) => {
-    filled = filled.replace(new RegExp(tag.replace(/[{}]/g, '\\$&'), 'g'), value);
-  });
+    filled = filled.replace(new RegExp(tag.replace(/[{}]/g, '\\$&'), 'g'), value)
+  })
 
-  return filled;
+  return filled
 }
 
-/**
- * מחולל PDF ראשי התומך בתבניות מה-DB
- */
-export async function generateLegalPDF(templateType: string, data: any) {
-  // 1. משיכת התבנית מהדטאבייס
+// ============================================
+// PDF Generation - Main Function
+// ============================================
+
+export async function generateLegalPDF(templateType: string, data: any): Promise<Blob> {
+  // 1. Fetch template from DB
   const { data: templateData, error } = await supabase
     .from('letter_templates')
     .select('template_content')
     .eq('template_type', templateType)
-    .single();
+    .single()
 
   if (error || !templateData) {
-    console.error('Error fetching template:', error);
-    throw new Error('לא נמצאה תבנית מתאימה במערכת');
+    console.error('Error fetching template:', error)
+    throw new Error('לא נמצאה תבנית מתאימה במערכת')
   }
 
-  const finalBody = fillTemplate(templateData.template_content, data);
+  const finalBody = fillTemplate(templateData.template_content, data)
 
-  // 2. יצירת ה-PDF
-  const doc = new jsPDF({
-    orientation: 'p',
-    unit: 'mm',
-    format: 'a4',
-  });
+  // 2. Create PDF
+  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
 
-  // הוספת פונטים ותמיכה בעברית (בהנחה שהגדרתם פונט שתומך בעברית ב-jsPDF)
-  // הערה: אם העברית יוצאת הפוכה, נצטרך להשתמש בפונקציית היפוך
-  const reverseHe = (text: string) => text.split('').reverse().join('');
+  // 3. Load Hebrew font
+  const fontLoaded = await loadHebrewFont(doc)
+  if (!fontLoaded) {
+    throw new Error('שגיאה בטעינת פונט עברי - לא ניתן ליצור PDF')
+  }
 
-  doc.setFontSize(12);
-  const margin = 20;
-  const pageWidth = doc.internal.pageSize.getWidth();
-  let currentY = 30;
+  const pageWidth = doc.internal.pageSize.getWidth()   // 210mm
+  const pageHeight = doc.internal.pageSize.getHeight()  // 297mm
+  const margin = 20
+  const contentWidth = pageWidth - margin * 2            // 170mm
+  const maxY = pageHeight - 25                           // Space for footer
 
-  // כתיבת הטקסט ל-PDF (שורה אחרי שורה)
-  const lines = doc.splitTextToSize(finalBody, pageWidth - margin * 2);
-  lines.forEach((line: string) => {
-    // ב-jsPDF רגיל ללא פלאגין RTL, נצטרך להצמיד לימין
-    doc.text(line, pageWidth - margin, currentY, { align: 'right' });
-    currentY += 7;
-  });
+  let currentY = 20
 
-  return doc.output('blob');
+  // --- Header ---
+  doc.setFontSize(16)
+  doc.text(processRTL('CashBus Legal Department'), pageWidth - margin, currentY, { align: 'right' })
+  currentY += 8
+
+  doc.setFontSize(10)
+  doc.text(processRTL(new Date().toLocaleDateString('he-IL')), pageWidth - margin, currentY, { align: 'right' })
+  currentY += 5
+
+  // Separator line
+  doc.setDrawColor(30, 41, 59)
+  doc.setLineWidth(0.5)
+  doc.line(margin, currentY, pageWidth - margin, currentY)
+  currentY += 10
+
+  // --- Content ---
+  doc.setFontSize(11)
+  const paragraphs = finalBody.split('\n')
+
+  for (const paragraph of paragraphs) {
+    if (paragraph.trim() === '') {
+      currentY += 4
+      continue
+    }
+
+    // Word-wrap long lines using jsPDF measurement
+    const wrappedLines = doc.splitTextToSize(paragraph, contentWidth) as string[]
+
+    for (const line of wrappedLines) {
+      // Page overflow check
+      if (currentY > maxY) {
+        doc.addPage()
+        doc.setFont('NotoSansHebrew')
+        currentY = 20
+      }
+
+      doc.text(processRTL(line), pageWidth - margin, currentY, { align: 'right' })
+      currentY += 6
+    }
+  }
+
+  // --- Add footers to all pages ---
+  const totalPages = doc.getNumberOfPages()
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i)
+    doc.setFont('NotoSansHebrew')
+
+    // Footer separator
+    doc.setDrawColor(148, 163, 184)
+    doc.setLineWidth(0.3)
+    doc.line(margin, pageHeight - 20, pageWidth - margin, pageHeight - 20)
+
+    // Reference ID
+    doc.setFontSize(8)
+    const refText = data.incidentId ? `Ref: ${data.incidentId.slice(0, 8)}` : ''
+    doc.text(refText, margin, pageHeight - 15)
+
+    // Branding
+    doc.text('CashBus Legal | legal@cashbuses.com | www.cashbuses.com', pageWidth - margin, pageHeight - 15, { align: 'right' })
+
+    // Page number
+    if (totalPages > 1) {
+      doc.text(`${i} / ${totalPages}`, pageWidth / 2, pageHeight - 15, { align: 'center' })
+    }
+  }
+
+  return doc.output('blob') as unknown as Blob
 }
+
+// ============================================
+// Public API
+// ============================================
 
 export function downloadPDF(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
 }
 
-// Type for warning letter data
 export interface WarningLetterData {
   incidentId: string
   incidentType: 'delay' | 'no_stop' | 'no_arrival'
@@ -106,9 +229,6 @@ export interface WarningLetterData {
   legalBasis: string
 }
 
-/**
- * Generate warning letter PDF - uses the 'demand' template
- */
 export async function generateWarningLetterPDF(data: WarningLetterData): Promise<Blob> {
   const templateData = {
     incidentId: data.incidentId,
@@ -122,15 +242,12 @@ export async function generateWarningLetterPDF(data: WarningLetterData): Promise
     description: getIncidentTypeText(data.incidentType),
     baseCompensation: data.baseCompensation,
     damageAmount: data.damageCompensation,
-    totalAmount: data.totalCompensation
+    totalAmount: data.totalCompensation,
   }
 
-  return generateLegalPDF('initial_warning', templateData)
+  return await generateLegalPDF('initial_warning', templateData)
 }
 
-/**
- * Generate filename for warning letter
- */
 export function generateWarningLetterFilename(customerName: string, claimId: string): string {
   const date = new Date().toISOString().split('T')[0]
   const safeName = customerName.replace(/[^א-תa-zA-Z0-9]/g, '_')

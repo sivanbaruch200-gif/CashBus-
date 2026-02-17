@@ -71,33 +71,55 @@ export default function LetterQueuePage() {
 
       if (error) throw error
 
-      // Transform data
-      const transformedClaims = data.map((claim: any) => ({
-        id: claim.id,
-        user_id: claim.user_id,
-        claim_amount: claim.claim_amount,
-        bus_company: claim.bus_company,
-        created_at: claim.created_at,
-        letter_sent_date: claim.letter_sent_date,
-        status: claim.status,
+      // Collect all incident IDs from all claims to fetch in one query
+      const allIncidentIds = data.flatMap((claim: any) => claim.incident_ids || [])
+      const uniqueIncidentIds = [...new Set(allIncidentIds)]
 
-        customer_name: claim.profiles?.full_name || 'לא ידוע',
-        customer_phone: claim.profiles?.phone || '',
-        customer_email: claim.profiles?.email || '',
-        customer_id: claim.profiles?.id_number || '000000000',
+      // Fetch actual incident data
+      let incidentMap: Record<string, any> = {}
+      if (uniqueIncidentIds.length > 0) {
+        const { data: incidents } = await supabase
+          .from('incidents')
+          .select('id, incident_type, station_name, bus_line, incident_datetime')
+          .in('id', uniqueIncidentIds)
 
-        incident_ids: claim.incident_ids || [],
-        incident_type: 'no_arrival', 
-        station_name: 'תחנה לא ידועה', 
-        bus_line: '1', 
-        incident_date: claim.created_at,
+        if (incidents) {
+          incidentMap = Object.fromEntries(incidents.map((i: any) => [i.id, i]))
+        }
+      }
 
-        reminder_id: claim.letter_reminders?.[0]?.id || null,
-        days_since_initial: claim.letter_reminders?.[0]?.days_since_initial || null,
-        reminder_status: claim.letter_reminders?.[0]?.status || null,
-        total_emails_sent: claim.letter_reminders?.[0]?.total_emails_sent || 0,
-        last_email_sent_at: claim.letter_reminders?.[0]?.last_email_sent_at || null,
-      }))
+      // Transform data - use real incident data instead of hardcoded values
+      const transformedClaims = data.map((claim: any) => {
+        const firstIncidentId = claim.incident_ids?.[0]
+        const firstIncident = firstIncidentId ? incidentMap[firstIncidentId] : null
+
+        return {
+          id: claim.id,
+          user_id: claim.user_id,
+          claim_amount: claim.claim_amount,
+          bus_company: claim.bus_company,
+          created_at: claim.created_at,
+          letter_sent_date: claim.letter_sent_date,
+          status: claim.status,
+
+          customer_name: claim.profiles?.full_name || 'לא ידוע',
+          customer_phone: claim.profiles?.phone || '',
+          customer_email: claim.profiles?.email || '',
+          customer_id: claim.profiles?.id_number || '000000000',
+
+          incident_ids: claim.incident_ids || [],
+          incident_type: firstIncident?.incident_type || 'no_arrival',
+          station_name: firstIncident?.station_name || 'לא ידוע',
+          bus_line: firstIncident?.bus_line || 'לא ידוע',
+          incident_date: firstIncident?.incident_datetime || claim.created_at,
+
+          reminder_id: claim.letter_reminders?.[0]?.id || null,
+          days_since_initial: claim.letter_reminders?.[0]?.days_since_initial || null,
+          reminder_status: claim.letter_reminders?.[0]?.status || null,
+          total_emails_sent: claim.letter_reminders?.[0]?.total_emails_sent || 0,
+          last_email_sent_at: claim.letter_reminders?.[0]?.last_email_sent_at || null,
+        }
+      })
 
       setClaims(transformedClaims)
     } catch (error) {
@@ -183,7 +205,7 @@ export default function LetterQueuePage() {
           subject: `מכתב התראה - תביעה מס' ${claim.id.slice(0, 8)} - CashBus`,
           body: `שלום ${claim.customer_name},\n\nמצורף מכתב התראה בנושא תביעתך נגד חברת ${claim.bus_company}.\n\nסכום התביעה: ₪${claim.claim_amount.toLocaleString()}\n\nבברכה,\nצוות CashBus`,
           pdfUrl: pdfUrl,
-          claimId: claim.id,
+          submissionId: claim.id,
         }),
       })
 
