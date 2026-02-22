@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MINISTRY_EMAIL } from '@/lib/legalSubmissions'
 import { Resend } from 'resend'
 import { createClient } from '@supabase/supabase-js'
+import { rateLimit, rateLimitResponse, getClientIP, RATE_LIMITS } from '@/lib/rateLimit'
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) {
@@ -25,6 +26,11 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    // --- Rate limit: IP-based (5 emails per 5 min – Resend quota & anti-spam) ---
+    const ip = getClientIP(request)
+    const ipCheck = rateLimit(`send-legal-email:${ip}`, RATE_LIMITS.sendLegalEmail)
+    if (!ipCheck.success) return rateLimitResponse(ipCheck)
+
     const body = await request.json()
     const { to, bcc, subject, body: emailBody, pdfUrl, submissionId } = body
 

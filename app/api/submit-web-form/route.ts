@@ -8,12 +8,18 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { MINISTRY_EMAIL } from '@/lib/legalSubmissions'
+import { rateLimit, rateLimitResponse, getClientIP, RATE_LIMITS } from '@/lib/rateLimit'
 
 // TODO: Install Puppeteer: npm install puppeteer
 // import puppeteer from 'puppeteer'
 
 export async function POST(request: NextRequest) {
   try {
+    // --- Rate limit: IP-based (5 submissions per 10 min – anti-spam) ---
+    const ip = getClientIP(request)
+    const ipCheck = rateLimit(`submit-web-form:${ip}`, RATE_LIMITS.submitWebForm)
+    if (!ipCheck.success) return rateLimitResponse(ipCheck)
+
     const body = await request.json()
     const {
       fullName,
