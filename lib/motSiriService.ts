@@ -189,6 +189,7 @@ async function fetchViaProxy(url: string): Promise<Response> {
     try {
       // Next.js 14 (Node.js 18+): use undici ProxyAgent for proxy support
       // undici is built into Node.js and used by Next.js internally
+      // @ts-ignore - undici is available in Node.js 18+ runtime used by Next.js
       const { ProxyAgent, fetch: undiciFetch } = await import('undici')
       const dispatcher = new ProxyAgent(FIXIE_URL)
       // @ts-ignore - undici fetch is compatible with global fetch interface

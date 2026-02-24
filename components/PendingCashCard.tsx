@@ -20,6 +20,7 @@ interface WithdrawalRequest {
   amount: number
   status: 'pending' | 'processing' | 'completed' | 'cancelled'
   requested_at: string
+  processed_at?: string
 }
 
 // Play a celebratory coin sound via Web Audio API
