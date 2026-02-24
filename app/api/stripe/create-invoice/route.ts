@@ -1,7 +1,7 @@
 /**
  * API Route: Create Stripe Invoice for Commission Payment
  *
- * Creates a Stripe invoice for the 15% success fee.
+ * Creates a Stripe invoice for the 20% success fee.
  * Called from admin panel or collection workflow.
  */
 
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       invoice: invoice.id,
       amount: Math.round(amount * 100),
       currency: (currency || 'ils').toLowerCase(),
-      description: description || 'עמלת הצלחה (15%)',
+      description: description || 'עמלת הצלחה (20%)',
     })
 
     // 4. Finalize invoice

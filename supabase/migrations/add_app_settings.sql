@@ -16,19 +16,19 @@ ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Admins can read settings"
   ON app_settings FOR SELECT
   USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin'))
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
   );
 
 CREATE POLICY "Admins can insert settings"
   ON app_settings FOR INSERT
   WITH CHECK (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin'))
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
   );
 
 CREATE POLICY "Admins can update settings"
   ON app_settings FOR UPDATE
   USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin'))
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
   );
 
 -- Server-side (service role) bypasses RLS, so backend workflows can always read settings

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowRight, MapPin, Calendar, FileText, DollarSign, Camera, Bus, AlertCircle, CheckCircle, Clock, Send, Scale, Shield, User, Filter, Building2, Banknote, TrendingUp } from 'lucide-react'
 import { supabase, getUserIncidents, getUserClaims, isUserAdmin, getAllIncidentsForAdmin, getAdminStatistics, type Incident, type Claim } from '@/lib/supabase'
 import { calculateCompensation, getBusCompanyName } from '@/lib/compensation'
+import { useSubscriptionGate, SubscriptionUpgradePrompt, FreeClaimsBadge } from '@/components/SubscriptionGate'
 
 // List of bus companies for filtering
 const BUS_COMPANIES = [
@@ -56,6 +57,9 @@ export default function MyClaimsPage() {
   const [selectedIncident, setSelectedIncident] = useState<IncidentWithProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
+  const { canCreate: canCreateClaim, status: subStatus } = useSubscriptionGate()
+  const [sendingLetter, setSendingLetter] = useState(false)
+  const [letterFeedback, setLetterFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   // Admin filter states
   const [filterCompany, setFilterCompany] = useState('')
@@ -113,6 +117,29 @@ export default function MyClaimsPage() {
     setIncidents(userIncidents)
     setClaims(userClaims)
     setLoading(false)
+  }
+
+  const handleCreateLetter = async () => {
+    if (!selectedIncident) return
+    setSendingLetter(true)
+    setLetterFeedback(null)
+    try {
+      const res = await fetch('/api/incidents/auto-send-letter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ incidentId: selectedIncident.id }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'שגיאה בשליחת המכתב')
+      }
+      setLetterFeedback({ type: 'success', message: 'מכתב הדרישה נשלח בהצלחה לחברת האוטובוסים!' })
+      await loadData()
+    } catch (err: any) {
+      setLetterFeedback({ type: 'error', message: err.message || 'שגיאה בשליחת המכתב' })
+    } finally {
+      setSendingLetter(false)
+    }
   }
 
   // Filter incidents based on admin filters
@@ -248,9 +275,13 @@ export default function MyClaimsPage() {
                 </p>
               </div>
             </div>
-            <div className="text-left">
-              <div className="text-sm text-gray-600">סה"כ פוטנציאל</div>
-              <div className="text-2xl font-bold text-green-600">₪{totalPotential.toLocaleString()}</div>
+            <div className="text-left flex flex-col items-end gap-2">
+              {!isAdmin && <FreeClaimsBadge />}
+              <div>
+                <div className="text-sm text-gray-600">סה"כ פוטנציאל</div>
+                <div className="text-2xl font-bold text-green-600">₪{totalPotential.toLocaleString()}</div>
+                <div className="text-xs text-gray-500">שלך (80%): ₪{Math.round(totalPotential * 0.8).toLocaleString()}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -632,9 +663,26 @@ export default function MyClaimsPage() {
                         {/* Total */}
                         <div className="border-t border-green-300 pt-3">
                           <div className="flex items-center justify-between">
-                            <span className="font-bold text-green-900">סה"כ</span>
+                            <span className="font-bold text-green-900">סה"כ פיצוי</span>
                             <span className="text-2xl font-bold text-green-600">
                               ₪{compensation.totalCompensation}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 80/20 Split */}
+                        <div className="border-t border-green-300 pt-3 bg-green-100 rounded-lg p-3 space-y-2">
+                          <div className="text-xs font-semibold text-green-800 mb-1">חלוקת הפיצוי (עמלת הצלחה):</div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold text-green-900">שלך (80%)</span>
+                            <span className="text-lg font-bold text-green-700">
+                              ₪{Math.round(compensation.totalCompensation * 0.8)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-green-700">עמלת CashBus (20%)</span>
+                            <span className="text-sm text-green-600">
+                              ₪{Math.round(compensation.totalCompensation * 0.2)}
                             </span>
                           </div>
                         </div>
@@ -698,10 +746,27 @@ export default function MyClaimsPage() {
                   )}
                 </div>
 
-                {/* Action Button */}
-                <button className="w-full btn-primary mt-6">
-                  צור מכתב התראה
-                </button>
+                {/* Action Button - gated by subscription */}
+                <div className="mt-6">
+                  {canCreateClaim ? (
+                    <>
+                      <button
+                        className="w-full btn-primary disabled:opacity-60"
+                        onClick={handleCreateLetter}
+                        disabled={sendingLetter}
+                      >
+                        {sendingLetter ? 'שולח מכתב...' : 'צור מכתב התראה'}
+                      </button>
+                      {letterFeedback && (
+                        <p className={`mt-2 text-sm text-center ${letterFeedback.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                          {letterFeedback.message}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <SubscriptionUpgradePrompt freeClaimsUsed={subStatus?.freeClaimsUsed ?? 2} />
+                  )}
+                </div>
               </div>
             ) : (
               <div className="card text-center py-12">

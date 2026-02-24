@@ -15,8 +15,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// Maximum distance in meters to consider "near a station"
-const MAX_STATION_DISTANCE_METERS = 300
+// Maximum combined distance (station_distance + GPS_accuracy) to accept
+// 40m = 30m physical distance from stop + up to 10m GPS uncertainty
+const MAX_STATION_DISTANCE_METERS = 30
+const MAX_COMBINED_DISTANCE_METERS = 40
 
 // Haversine formula to calculate distance between two points
 function calculateHaversineDistance(
@@ -154,24 +156,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check if nearest stop is within acceptable range
-    if (minDistance > MAX_STATION_DISTANCE_METERS) {
+    const rawDistance = Math.round(minDistance)
+    const combinedDistance = rawDistance + Math.round(gpsAccuracy || 0)
+
+    // Check: station distance alone exceeds absolute max, OR combined distance exceeds max
+    if (rawDistance > MAX_STATION_DISTANCE_METERS || combinedDistance > MAX_COMBINED_DISTANCE_METERS) {
       return NextResponse.json({
         success: true,
         validated: false,
         station: null,
+        errorCode: 'NOT_AT_STATION',
         nearestStation: {
           name: nearestStop?.stop_name,
-          distance: Math.round(minDistance)
+          distance: rawDistance,
+          combinedDistance
         },
-        message: 'לא זוהתה תחנה בקרבת מקום על פי נתוני לוויין.',
-        messageEn: 'No station detected nearby based on satellite data.',
-        details: `התחנה הקרובה ביותר (${nearestStop?.stop_name}) נמצאת במרחק ${Math.round(minDistance)} מטר, מעבר לטווח המקסימלי של ${MAX_STATION_DISTANCE_METERS} מטר.`,
-        userLocation: {
-          lat: userLat,
-          lng: userLng,
-          accuracy: gpsAccuracy
-        },
+        message: 'אינך נמצא בתחנת אוטובוס מזוהה. עמוד ליד עמוד האוטובוס ונסה שוב.',
+        messageEn: 'You are not at a recognized bus stop. Please stand next to the bus stop sign.',
+        details: `התחנה הקרובה ביותר (${nearestStop?.stop_name}) נמצאת במרחק ${rawDistance}m (כולל דיוק GPS ±${Math.round(gpsAccuracy || 0)}m: ${combinedDistance}m) — מעבר לטווח המותר.`,
+        userLocation: { lat: userLat, lng: userLng, accuracy: gpsAccuracy },
         searchRadius: MAX_STATION_DISTANCE_METERS,
         timestamp: requestTimestamp,
         dataSource: 'gtfs_stops table (Ministry of Transportation)'
@@ -188,25 +191,23 @@ export async function POST(request: NextRequest) {
         name: nearestStop.stop_name,
         lat: parseFloat(nearestStop.stop_lat),
         lng: parseFloat(nearestStop.stop_lon),
-        distance: nearestStop.distance_meters
+        distance: rawDistance,
+        combinedDistance
       },
       message: `מיקום אומת: תחנת ${nearestStop.stop_name}`,
       messageEn: `Location verified: ${nearestStop.stop_name} station`,
-      userLocation: {
-        lat: userLat,
-        lng: userLng,
-        accuracy: gpsAccuracy
-      },
+      userLocation: { lat: userLat, lng: userLng, accuracy: gpsAccuracy },
       searchRadius: MAX_STATION_DISTANCE_METERS,
       timestamp: requestTimestamp,
       dataSource: 'gtfs_stops table (Ministry of Transportation)',
       evidenceChain: {
         gpsTimestamp: requestTimestamp,
-        gpsAccuracy: gpsAccuracy,
+        gpsAccuracyMeters: Math.round(gpsAccuracy || 0),
         stationId: nearestStop.stop_id,
         stationCode: nearestStop.stop_code,
-        distanceMeters: nearestStop.distance_meters,
-        calculationMethod: 'Haversine formula',
+        distanceMeters: rawDistance,
+        combinedDistanceMeters: combinedDistance,
+        calculationMethod: 'Haversine formula + GPS uncertainty',
         dataSource: 'Israel Ministry of Transportation GTFS'
       }
     })

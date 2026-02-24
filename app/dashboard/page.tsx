@@ -6,15 +6,20 @@ import { supabase, getSession, getCurrentUserProfile, createIncidentWithPhoto, s
 import PanicButton, { type IncidentFormData } from '@/components/PanicButton'
 import DailyChallenge from '@/components/DailyChallenge'
 import MyAccountWidget from '@/components/MyAccountWidget'
-import { ArrowRight, FileText, AlertCircle, Clock, Award, LogOut, Shield, Settings } from 'lucide-react'
+import { ArrowRight, FileText, AlertCircle, Clock, LogOut, Shield, Settings } from 'lucide-react'
 import { calculateCompensation } from '@/lib/compensation'
+import PointsBadge from '@/components/PointsBadge'
+import DailyLoginReward from '@/components/DailyLoginReward'
+import PendingCashCard from '@/components/PendingCashCard'
+import SuccessMoment from '@/components/SuccessMoment'
 
 export default function DashboardPage() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [showSuccess, setShowSuccess] = useState(false)
+  const [showSuccessMoment, setShowSuccessMoment] = useState(false)
+  const [successCompensation, setSuccessCompensation] = useState(800)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
 
@@ -113,11 +118,18 @@ export default function DashboardPage() {
         data.receiptFile
       )
 
-      setShowSuccess(true)
-      setTimeout(() => {
-        setShowSuccess(false)
-        checkAuthAndLoadData()
-      }, 3000)
+      // Auto-send demand letter to bus company (fire-and-forget)
+      fetch('/api/incidents/auto-send-letter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ incidentId: incident.id }),
+      }).catch((emailErr) => {
+        // Incident is saved — admin can retry from letter queue
+        console.warn('Auto-send letter failed:', emailErr)
+      })
+
+      setSuccessCompensation(data.totalCompensation || 800)
+      setShowSuccessMoment(true)
 
     } catch (error) {
       console.error('Error creating incident:', error)
@@ -149,6 +161,14 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-surface-base">
+      {showSuccessMoment && (
+        <SuccessMoment
+          compensationAmount={successCompensation}
+          onDismiss={() => { setShowSuccessMoment(false); checkAuthAndLoadData() }}
+          onViewCase={() => { setShowSuccessMoment(false); router.push('/claims') }}
+        />
+      )}
+      <DailyLoginReward />
       {/* Header */}
       <header className="bg-surface-raised border-b border-surface-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -163,7 +183,7 @@ export default function DashboardPage() {
                   </span>
                 )}
               </div>
-              <p className="text-sm text-content-secondary">דווח על תקלות בזמן אמת וצבור פיצויים</p>
+              <p className="text-sm text-content-secondary">דווח על תקלות בזמן אמת • 80% הפיצוי שלך, ללא תשלום מראש</p>
             </div>
             <div className="flex items-center gap-3">
               {isAdmin && (
@@ -182,6 +202,7 @@ export default function DashboardPage() {
                 <FileText className="w-5 h-5 text-content-secondary" />
                 <span className="text-sm font-medium text-content-secondary">התיקים שלי</span>
               </button>
+              <PointsBadge />
               <button
                 onClick={handleSignOut}
                 className="flex items-center gap-2 px-4 py-2 bg-status-rejected-surface hover:bg-status-rejected/20 text-status-rejected rounded-xl transition-colors border border-status-rejected/20"
@@ -206,38 +227,21 @@ export default function DashboardPage() {
               </div>
             )}
 
-            <div className="card">
-              <h2 className="text-xl font-bold text-content-primary mb-2 text-center">דיווח מהיר</h2>
-              <p className="text-sm text-content-secondary mb-8 text-center">
-                לחץ על הכפתור כאשר האוטובוס לא מגיע או לא עוצר
-              </p>
-
-              {showSuccess && (
-                <div className="mb-6 p-4 bg-status-approved-surface border border-status-approved/20 rounded-xl flex items-center gap-3">
-                  <Award className="w-6 h-6 text-status-approved" />
-                  <div>
-                    <p className="font-medium text-status-approved">הדיווח נשמר בהצלחה!</p>
-                    <p className="text-sm text-content-secondary">התיק התווסף לארכיון שלך</p>
-                  </div>
-                </div>
-              )}
-
-              <div className={submitting ? 'opacity-50 pointer-events-none' : ''}>
-                <PanicButton
-                  onPress={handlePanicPress}
-                  onIncidentSubmit={handleIncidentSubmit}
-                />
-              </div>
-
-              {submitting && (
-                <div className="mt-6 text-center">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-surface-overlay text-accent rounded-xl border border-surface-border">
-                    <Clock className="w-5 h-5 animate-spin" />
-                    <span className="font-medium">שומר את הדיווח...</span>
-                  </div>
-                </div>
-              )}
+            {/* Report section — no nested card */}
+            <div className={submitting ? 'opacity-50 pointer-events-none' : ''}>
+              <PanicButton
+                onPress={handlePanicPress}
+                onIncidentSubmit={handleIncidentSubmit}
+              />
             </div>
+
+            {submitting && (
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm"
+                style={{ color: 'rgba(255,140,0,0.8)' }}>
+                <Clock className="w-4 h-4 animate-spin" />
+                <span>שומר את הדיווח...</span>
+              </div>
+            )}
 
             {/* Quick Stats */}
             <div className="grid grid-cols-2 gap-4 mt-6">
@@ -266,9 +270,10 @@ export default function DashboardPage() {
           {/* Right Column */}
           <div className="lg:col-span-1">
             <div className="sticky top-8 space-y-4">
+              <PendingCashCard />
               <MyAccountWidget
                 receivedAmount={profile?.total_received || 0}
-                potentialAmount={profile?.total_potential || 0}
+                activeClaims={profile?.total_claims || 0}
               />
               <button
                 onClick={() => router.push('/claims')}
@@ -307,9 +312,10 @@ export default function DashboardPage() {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-status-approved-surface rounded-full mb-4 border border-status-approved/20">
                 <span className="text-2xl font-bold text-status-approved">3</span>
               </div>
-              <h3 className="font-bold text-content-primary mb-2">צבור ותבע</h3>
+              <h3 className="font-bold text-content-primary mb-2">קבל פיצוי</h3>
               <p className="text-sm text-content-secondary">
-                כאשר תצבור מספיק אירועים, נוכל להפיק מכתב התראה ולהגיש תביעה לפיצוי.
+                כאשר החברה תשלם — <strong>80% ישירות אליך</strong>, 20% עמלת הצלחה ל-CashBus.
+                אין תשלום מראש — משלמים רק אם מצליחים.
               </p>
             </div>
           </div>

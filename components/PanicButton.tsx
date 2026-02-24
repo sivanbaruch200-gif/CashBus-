@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { AlertCircle, Clock, MapPin, Bus, Camera, Upload, CheckCircle, ArrowRight, Banknote, XCircle, AlertTriangle, Shield, Satellite, Database, Loader2, Users } from 'lucide-react'
+import { AlertCircle, Clock, MapPin, Bus, Camera, Upload, CheckCircle, ArrowRight, XCircle, AlertTriangle, Shield, Satellite, Database, Loader2, Users } from 'lucide-react'
 import { calculateCompensation, type CompensationParams, type CompensationResult } from '@/lib/compensation'
 import CompensationCalculator from './CompensationCalculator'
-import { reverseGeocode, formatCoordinatesAsFallback } from '@/lib/geocodingService'
 import { getCurrentUserConsentStatus } from '@/lib/supabase'
 
 interface PanicButtonProps {
@@ -34,7 +33,9 @@ export interface IncidentFormData {
   validationTimestamp?: string
   siriVerified?: boolean
   siriTimestamp?: string
-  // OpenStreetMap address (when GTFS unavailable)
+  // Scheduled arrival time (user-entered, HH:MM format)
+  scheduledTime?: string
+  // OpenStreetMap address (legacy — only set for GTFS-verified stations now)
   osmAddress?: string
   fullAddress?: string // Complete formatted address for legal documents
   // Compensation data
@@ -45,7 +46,7 @@ export interface IncidentFormData {
 }
 
 // GPS Error types
-type GpsErrorType = 'permission_denied' | 'position_unavailable' | 'timeout' | 'not_supported' | null
+type GpsErrorType = 'permission_denied' | 'position_unavailable' | 'timeout' | 'not_supported' | 'accuracy_insufficient' | null
 
 // Validation status types
 type ValidationStatus = 'idle' | 'validating_location' | 'validating_siri' | 'success' | 'error'
@@ -63,6 +64,7 @@ interface StationValidation {
     lat: number
     lng: number
     distance: number
+    combinedDistance?: number
   } | null
   message: string
   timestamp: string
@@ -74,6 +76,7 @@ interface SiriValidation {
   success: boolean
   busFound: boolean
   verified: boolean
+  verdict?: 'confirmed' | 'contradicted' | 'unconfirmed' | 'insufficient_data' | 'too_early'
   message: string
   messageType: 'success' | 'warning' | 'error'
   color: string
@@ -84,11 +87,12 @@ interface SiriValidation {
 
 // GPS Lock configuration
 const GPS_LOCK_CONFIG = {
-  maxSamples: 5,           // Maximum number of GPS samples to collect
-  lockTimeout: 8000,       // Total timeout for GPS lock (8 seconds)
-  sampleInterval: 1000,    // Interval between samples (1 second)
-  targetAccuracy: 15,      // Stop early if we get accuracy <= 15 meters
-  minSamples: 3,           // Minimum samples before accepting result
+  maxSamples: 8,              // Maximum number of GPS samples to collect
+  lockTimeout: 15000,         // Total timeout for GPS lock (15 seconds)
+  sampleInterval: 1000,       // Interval between samples (1 second)
+  targetAccuracy: 8,          // Stop early if we get accuracy <= 8 meters
+  maxAcceptableAccuracy: 10,  // Hard block if best accuracy is worse than this
+  minSamples: 3,              // Minimum samples before accepting result
 }
 
 interface GpsSample {
@@ -100,6 +104,7 @@ interface GpsSample {
 
 export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonProps) {
   const [step, setStep] = useState<FormStep>('button')
+  const [compensation, setCompensation] = useState(0)
   const [gpsLocation, setGpsLocation] = useState<{ lat: number; lng: number; accuracy: number; timestamp: string } | null>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [gpsError, setGpsError] = useState<GpsErrorType>(null)
@@ -123,7 +128,6 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     incidentType: 'no_arrival',
   })
 
-  const [compensation, setCompensation] = useState<number>(0)
 
   // Minor consent status
   const [consentStatus, setConsentStatus] = useState<{
@@ -170,6 +174,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         return 'חיפוש המיקום נמשך יותר מדי זמן. אנא נסו שוב באזור עם קליטה טובה יותר.'
       case 'not_supported':
         return 'הדפדפן שלכם אינו תומך בשירותי מיקום. אנא נסו דפדפן אחר.'
+      case 'accuracy_insufficient':
+        return 'דיוק ה-GPS לא מספיק לדיווח משפטי (נדרש 10 מטר לפחות). אנא צאו לחוץ, התרחקו מבניינים ונסו שוב.'
       default:
         return 'אירעה שגיאה בלתי צפויה. אנא נסו שוב.'
     }
@@ -202,6 +208,13 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     const bestSample = selectBestSample(samples)
     if (!bestSample) {
       setGpsError('position_unavailable')
+      setIsLocating(false)
+      return
+    }
+
+    // Hard block if best accuracy is worse than maximum acceptable
+    if (bestSample.accuracy > GPS_LOCK_CONFIG.maxAcceptableAccuracy) {
+      setGpsError('accuracy_insufficient')
       setIsLocating(false)
       return
     }
@@ -340,51 +353,46 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
       const result = await response.json()
 
-      // GTFS validation failed - fall back to OpenStreetMap
-      if (!result.success || !result.validated) {
-        console.warn('GTFS validation failed, using OpenStreetMap fallback')
-
-        // Get address from OpenStreetMap
-        const geocodeResult = await reverseGeocode(lat, lng)
-        // Use fullAddress for legal docs, fallback to address for display
-        const displayAddress = geocodeResult.success && geocodeResult.address
-          ? geocodeResult.address
-          : formatCoordinatesAsFallback(lat, lng)
-        const legalAddress = geocodeResult.success && geocodeResult.fullAddress
-          ? geocodeResult.fullAddress
-          : displayAddress
-
-        // Create pseudo-station validation with OSM address
+      // GTFS data unavailable (empty table / server error)
+      if (result.errorCode === 'GTFS_EMPTY') {
         setStationValidation({
-          validated: true, // Mark as validated via OSM
-          station: null, // No GTFS station
-          message: `מיקום אומת: ${displayAddress}`,
+          validated: false,
+          station: null,
+          message: 'שירות אימות התחנות לא זמין כרגע. נסו שוב מאוחר יותר.',
           timestamp: new Date().toISOString(),
-          dataSource: 'OpenStreetMap'
+          dataSource: 'GTFS'
         })
-
-        // Update form data with OSM addresses (both display and legal)
-        setFormData(prev => ({
-          ...prev,
-          osmAddress: displayAddress,
-          fullAddress: legalAddress,
-          validationTimestamp: new Date().toISOString()
-        }))
-
-        setValidationStatus('success')
+        setValidationStatus('error')
+        setValidationError('שירות לא זמין')
         return
       }
 
-      // GTFS validation succeeded
+      // User is not at a recognized bus stop — BLOCK
+      if (!result.validated) {
+        const nearestInfo = result.nearestStation
+          ? ` (הקרובה ביותר: "${result.nearestStation.name}" — ${result.nearestStation.distance}מ')`
+          : ''
+        setStationValidation({
+          validated: false,
+          station: null,
+          message: result.message || 'אינך נמצא בתחנת אוטובוס מזוהה.',
+          timestamp: new Date().toISOString(),
+          dataSource: 'GTFS - משרד התחבורה'
+        })
+        setValidationStatus('error')
+        setValidationError(`עמוד ליד עמוד האוטובוס ונסה שוב.${nearestInfo}`)
+        return
+      }
+
+      // GTFS station found — validation successful
       setStationValidation({
-        validated: result.validated,
+        validated: true,
         station: result.station,
         message: result.message,
         timestamp: result.timestamp,
         dataSource: result.dataSource
       })
 
-      // Station found - update form data
       setFormData(prev => ({
         ...prev,
         stationId: result.station.stopId,
@@ -392,6 +400,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         stationCode: result.station.stopCode,
         stationLat: result.station.lat,
         stationLng: result.station.lng,
+        fullAddress: `תחנת ${result.station.name}`,
         validationTimestamp: result.timestamp
       }))
 
@@ -399,44 +408,36 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
 
     } catch (error) {
       console.error('Location validation error:', error)
-
-      // Network error - fall back to OpenStreetMap
-      try {
-        const geocodeResult = await reverseGeocode(lat, lng)
-        const displayAddress = geocodeResult.success && geocodeResult.address
-          ? geocodeResult.address
-          : formatCoordinatesAsFallback(lat, lng)
-        const legalAddress = geocodeResult.success && geocodeResult.fullAddress
-          ? geocodeResult.fullAddress
-          : displayAddress
-
-        setStationValidation({
-          validated: true,
-          station: null,
-          message: `מיקום אומת: ${displayAddress}`,
-          timestamp: new Date().toISOString(),
-          dataSource: 'OpenStreetMap (Fallback)'
-        })
-
-        setFormData(prev => ({
-          ...prev,
-          osmAddress: displayAddress,
-          fullAddress: legalAddress,
-          validationTimestamp: new Date().toISOString()
-        }))
-
-        setValidationStatus('success')
-      } catch (osmError) {
-        console.error('OSM fallback also failed:', osmError)
-        setValidationError('שגיאה באימות המיקום. נסה שוב.')
-        setValidationStatus('error')
-      }
+      setStationValidation({
+        validated: false,
+        station: null,
+        message: 'שגיאת רשת בעת אימות המיקום.',
+        timestamp: new Date().toISOString(),
+        dataSource: 'GTFS'
+      })
+      setValidationError('שגיאת חיבור — בדוק אינטרנט ונסה שוב.')
+      setValidationStatus('error')
     }
+  }
+
+  // Map UI incident type to SIRI API incident type
+  const toSiriIncidentType = (uiType: string): string => {
+    if (uiType === 'no_arrival') return 'didnt_arrive'
+    if (uiType === 'no_stop') return 'didnt_stop'
+    return 'delay'
   }
 
   // Validate with SIRI when bus line and company are selected
   const validateSiri = async (busLine: string, busCompany: string) => {
-    if (!stationValidation?.station || !gpsLocation) return
+    if (!gpsLocation) return
+    if (!stationValidation?.validated) return
+
+    // Use GTFS station data if available, fall back to GPS coordinates
+    const station = stationValidation.station
+    const stationLat = station?.lat ?? gpsLocation.lat
+    const stationLng = station?.lng ?? gpsLocation.lng
+    const stationName = station?.name ?? formData.osmAddress ?? 'מיקום GPS'
+    const stationCode = station?.stopCode ?? null
 
     setValidationStatus('validating_siri')
 
@@ -445,13 +446,18 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          stationLat: stationValidation.station.lat,
-          stationLng: stationValidation.station.lng,
-          stationName: stationValidation.station.name,
-          stationCode: stationValidation.station.stopCode,
+          stationLat,
+          stationLng,
+          stationName,
+          stationCode,
           busLine,
           busCompany,
-          reportTime: gpsLocation.timestamp
+          reportTime: gpsLocation.timestamp,
+          incidentType: toSiriIncidentType(formData.incidentType || 'no_arrival'),
+          userLat: gpsLocation.lat,
+          userLng: gpsLocation.lng,
+          userAccuracyMeters: Math.round(gpsLocation.accuracy),
+          userLocationCapturedAt: gpsLocation.timestamp,
         })
       })
 
@@ -461,6 +467,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
         success: result.success,
         busFound: result.busFound,
         verified: result.verified,
+        verdict: result.verdict,
         message: result.message,
         messageType: result.messageType || 'success',
         color: result.color || 'gray',
@@ -539,17 +546,6 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       }
     }
 
-    // Recalculate compensation
-    if (newFormData.incidentType && newFormData.busCompany) {
-      const result = calculateCompensation({
-        incidentType: newFormData.incidentType,
-        delayMinutes: newFormData.delayMinutes,
-        damageType: newFormData.damageType,
-        damageAmount: newFormData.damageAmount,
-        busCompany: newFormData.busCompany,
-      } as CompensationParams)
-      setCompensation(result.totalCompensation)
-    }
   }
 
   // Handle photo upload
@@ -565,23 +561,99 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
     }
   }
 
+  // Minimum delay threshold per incident type (in minutes after scheduled arrival)
+  // delay: 20 min (aligns with compensation.ts threshold — <20 min = 0 NIS)
+  // no_arrival: 15 min (bus clearly not coming)
+  // no_stop: 0 (immediate — bus physically passed)
+  const MIN_DELAY_MINUTES: Record<string, number> = {
+    delay: 20,
+    no_arrival: 15,
+    no_stop: 0,
+  }
+
+  // Check if the time window is valid for reporting
+  // Returns { valid, reason, minutesLate }
+  const getTimeWindowStatus = (): { valid: boolean; reason?: string; minutesLate?: number } => {
+    const incidentType = formData.incidentType || 'no_arrival'
+    const minDelay = MIN_DELAY_MINUTES[incidentType] ?? 15
+
+    // 'no_stop' doesn't require a time window — bus physically passed
+    if (minDelay === 0) return { valid: true }
+
+    if (!formData.scheduledTime) {
+      return { valid: false, reason: 'נא להזין את שעת ההגעה המתוכננת' }
+    }
+
+    const now = new Date()
+    const [hours, minutes] = formData.scheduledTime.split(':').map(Number)
+    const scheduled = new Date()
+    scheduled.setHours(hours, minutes, 0, 0)
+
+    // Handle overnight edge case (scheduled past midnight)
+    if (scheduled.getTime() - now.getTime() > 12 * 60 * 60 * 1000) {
+      scheduled.setDate(scheduled.getDate() - 1)
+    }
+
+    const minutesLate = Math.floor((now.getTime() - scheduled.getTime()) / 60000)
+
+    if (minutesLate < 0) {
+      return { valid: false, reason: `האוטובוס אמור להגיע בעוד ${-minutesLate} דקות — לא ניתן לדווח לפני הגעתו המתוכננת`, minutesLate }
+    }
+    if (minutesLate < minDelay) {
+      return { valid: false, reason: `חלפו רק ${minutesLate} דקות מהשעה המתוכננת. ניתן לדווח לאחר ${minDelay} דקות`, minutesLate }
+    }
+    return { valid: true, minutesLate }
+  }
+
+  // Whether submission is allowed (all validations pass)
+  const getSubmitBlockReason = (): string | null => {
+    if (!formData.busLine) return 'נא להזין מספר קו'
+    if (!formData.busCompany) return 'נא לבחור חברת אוטובוסים'
+    if (!stationValidation?.validated) return 'אימות מיקום נכשל'
+
+    const incidentType = formData.incidentType || 'no_arrival'
+
+    // SIRI blocks — based on incident type
+    if (siriValidation?.verdict === 'contradicted') {
+      if (incidentType === 'no_arrival' || incidentType === 'no_stop') {
+        // Show the server's specific message (includes velocity info)
+        return siriValidation.message || 'לא ניתן לשלוח — נתוני SIRI מאשרים שהאוטובוס הגיע לתחנה'
+      }
+    }
+    // no_stop with partial SIRI data — velocity unknown, can't confirm
+    if (incidentType === 'no_stop' && siriValidation?.verdict === 'unconfirmed') {
+      return siriValidation.message || 'לא ניתן לשלוח — לא ניתן לאמת אם האוטובוס עצר'
+    }
+    // Delay: block if SIRI has schedule data but no delay recorded
+    if (incidentType === 'delay' && siriValidation?.verdict === 'unconfirmed') {
+      return 'לא ניתן לשלוח — נתוני SIRI לא מאשרים איחור משמעותי בזמן זה'
+    }
+    // Too early: SIRI says bus hasn't reached stop yet
+    if (siriValidation?.verdict === 'too_early') {
+      return 'לא ניתן לשלוח — על פי SIRI האוטובוס טרם הגיע לתחנה'
+    }
+
+    const timeWindow = getTimeWindowStatus()
+    if (!timeWindow.valid) return timeWindow.reason || 'שגיאה בבדיקת הזמן'
+    return null
+  }
+
   // Submit form
   const handleSubmit = () => {
-    if (!formData.busLine || !formData.busCompany || !gpsLocation) {
-      alert('נא למלא את כל השדות הנדרשים')
+    if (!gpsLocation) return
+
+    const blockReason = getSubmitBlockReason()
+    if (blockReason) {
+      alert(blockReason)
       return
     }
 
-    // Require either GTFS station or OSM address
-    if (!stationValidation?.validated || (!stationValidation.station && !formData.osmAddress)) {
-      alert('נא לאמת את המיקום לפני שליחת הדיווח')
-      return
-    }
+    const timeWindow = getTimeWindowStatus()
 
     // Calculate final compensation
     const compensationResult = calculateCompensation({
       incidentType: formData.incidentType!,
-      delayMinutes: formData.delayMinutes,
+      delayMinutes: formData.delayMinutes ?? timeWindow.minutesLate,
       damageType: formData.damageType,
       damageAmount: formData.damageAmount,
       busCompany: formData.busCompany!,
@@ -591,7 +663,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       busLine: formData.busLine!,
       busCompany: formData.busCompany!,
       incidentType: formData.incidentType!,
-      delayMinutes: formData.delayMinutes,
+      scheduledTime: formData.scheduledTime,
+      delayMinutes: formData.delayMinutes ?? timeWindow.minutesLate,
       damageType: formData.damageType,
       damageAmount: formData.damageAmount,
       damageDescription: formData.damageDescription,
@@ -608,9 +681,7 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
       validationTimestamp: formData.validationTimestamp,
       siriVerified: formData.siriVerified,
       siriTimestamp: formData.siriTimestamp,
-      // OSM address for fallback location
-      osmAddress: formData.osmAddress,
-      fullAddress: formData.fullAddress, // Complete address for legal documents
+      fullAddress: formData.fullAddress,
       // Add compensation data
       baseCompensation: compensationResult.baseCompensation,
       damageCompensation: compensationResult.damageCompensation,
@@ -661,34 +732,128 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
   // ==========================================
   if (step === 'button') {
     return (
-      <div className="flex flex-col items-center">
+      <>
+        <style>{`
+          @keyframes pb-glow-ring {
+            0%, 100% { transform: scale(1);    opacity: 0.18; }
+            50%       { transform: scale(1.12); opacity: 0.35; }
+          }
+          @keyframes pb-orbit {
+            from { transform: rotate(0deg) translateX(52px) rotate(0deg); }
+            to   { transform: rotate(360deg) translateX(52px) rotate(-360deg); }
+          }
+          @keyframes pb-float {
+            0%, 100% { transform: translateY(0); }
+            50%       { transform: translateY(-6px); }
+          }
+        `}</style>
+
+        {/* Full-width cinematic trigger */}
         <button
           onClick={handlePanicPress}
-          className="
-            relative group
-            w-64 h-64 rounded-full
-            bg-gradient-to-br from-red-500 to-red-600
-            shadow-2xl
-            transition-all duration-300
-            hover:scale-105 hover:shadow-3xl active:scale-95
-          "
+          dir="rtl"
+          className="relative w-full overflow-hidden rounded-3xl text-right group transition-all duration-300 active:scale-[0.985]"
+          style={{
+            background: 'linear-gradient(160deg, #0f0600 0%, #0a0a0a 45%, #0d0400 100%)',
+            border: '1px solid rgba(255,120,0,0.12)',
+            minHeight: '260px',
+          }}
         >
-          <div className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-20" />
-          <div className="relative flex flex-col items-center justify-center h-full text-white">
-            <AlertCircle className="w-20 h-20 mb-4" strokeWidth={2.5} />
-            <span className="text-2xl font-bold text-center leading-tight px-6">
-              האוטובוס לא הגיע / לא עצר
-            </span>
-          </div>
-          <div className="absolute inset-0 rounded-full bg-red-400 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-300" />
-        </button>
+          {/* Ambient bottom glow */}
+          <div
+            className="absolute bottom-0 left-0 right-0 pointer-events-none transition-opacity duration-500 group-hover:opacity-100"
+            style={{
+              height: '65%',
+              background: 'radial-gradient(ellipse at 50% 110%, rgba(255,120,0,0.18) 0%, transparent 70%)',
+              opacity: 0.7,
+            }}
+          />
 
-        <div className="mt-6 text-center">
-          <p className="text-content-secondary text-sm max-w-xs">
-            לחצו על הכפתור כאשר האוטובוס לא מגיע או לא עוצר בתחנה
-          </p>
-        </div>
-      </div>
+          {/* Pulsing rings around the trigger dot */}
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 120, height: 120,
+              borderRadius: '50%',
+              border: '1px solid rgba(255,120,0,0.15)',
+              animation: 'pb-glow-ring 2.8s ease-in-out infinite',
+            }}
+          />
+          <div
+            className="absolute pointer-events-none"
+            style={{
+              top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 170, height: 170,
+              borderRadius: '50%',
+              border: '1px solid rgba(255,120,0,0.08)',
+              animation: 'pb-glow-ring 2.8s 0.9s ease-in-out infinite',
+            }}
+          />
+
+          {/* Content */}
+          <div className="relative z-10 px-8 pt-9 pb-6 flex flex-col justify-between h-full" style={{ minHeight: '260px' }}>
+
+            {/* Top: label */}
+            <div>
+              <p
+                className="text-xs font-semibold tracking-widest uppercase mb-3"
+                style={{ color: 'rgba(255,140,0,0.6)', letterSpacing: '0.18em' }}
+              >
+                האוטובוס לא הגיע?
+              </p>
+              <h2
+                className="font-black leading-none mb-1"
+                style={{ fontSize: 'clamp(2rem, 8vw, 2.8rem)', color: '#FFFFFF', letterSpacing: '-0.02em' }}
+              >
+                לחץ כאן.
+              </h2>
+              <h2
+                className="font-black leading-none"
+                style={{
+                  fontSize: 'clamp(2rem, 8vw, 2.8rem)',
+                  background: 'linear-gradient(135deg, #FF8C00, #FFD700)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                תקבל כסף.
+              </h2>
+            </div>
+
+            {/* Bottom: pill CTA + sub-text */}
+            <div className="flex items-end justify-between">
+              <p
+                className="text-xs max-w-[160px] leading-relaxed"
+                style={{ color: 'rgba(255,255,255,0.32)' }}
+              >
+                תיעוד דיגיטלי • מכתב משפטי אוטומטי • 80% הפיצוי שלך
+              </p>
+
+              {/* Glowing dot-button */}
+              <div
+                className="relative flex items-center justify-center rounded-full transition-transform duration-300 group-hover:scale-110"
+                style={{
+                  width: 60, height: 60,
+                  background: 'linear-gradient(135deg, #FF8C00, #FF6000)',
+                  boxShadow: '0 0 28px rgba(255,120,0,0.45)',
+                  animation: 'pb-float 3s ease-in-out infinite',
+                }}
+              >
+                <AlertCircle className="w-7 h-7 text-white" strokeWidth={2.5} />
+                {/* Ping ring on the dot */}
+                <div
+                  className="absolute inset-0 rounded-full animate-ping"
+                  style={{ background: 'rgba(255,120,0,0.3)' }}
+                />
+              </div>
+            </div>
+          </div>
+        </button>
+      </>
     )
   }
 
@@ -723,6 +888,18 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                 <li>Safari: הגדרות &rarr; פרטיות &rarr; שירותי מיקום</li>
                 <li>Firefox: לחצו על סמל המגן &rarr; הרשאות &rarr; מיקום</li>
               </ul>
+            </div>
+          )}
+
+          {gpsError === 'accuracy_insufficient' && (
+            <div className="bg-status-pending-surface border border-status-pending/20 rounded-lg p-4 mb-6 text-sm text-content-secondary text-right">
+              <p className="font-medium text-content-primary mb-2">לשיפור דיוק ה-GPS:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>צאו לחוץ והתרחקו מבניינים</li>
+                <li>הפנו את המסך כלפי השמים לרגע</li>
+                <li>ודאו ש-GPS מופעל בהגדרות המכשיר</li>
+              </ul>
+              <p className="text-xs text-content-tertiary mt-2">דיוק נדרש: עד 10 מטר</p>
             </div>
           )}
 
@@ -798,8 +975,8 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                   <span
                     key={i}
                     className={`text-xs px-2 py-0.5 rounded-full font-mono ${
-                      sample.accuracy <= 10 ? 'bg-status-approved-surface text-status-approved' :
-                      sample.accuracy <= 30 ? 'bg-status-pending-surface text-status-pending' :
+                      sample.accuracy <= 8 ? 'bg-status-approved-surface text-status-approved' :
+                      sample.accuracy <= 10 ? 'bg-status-pending-surface text-status-pending' :
                       'bg-status-rejected-surface text-status-rejected'
                     }`}
                   >
@@ -831,9 +1008,9 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-content-secondary">דיוק סופי:</span>
-                  <span className={`font-mono font-bold ${gpsLocation.accuracy <= 10 ? 'text-status-approved' : gpsLocation.accuracy <= 30 ? 'text-status-pending' : 'text-status-rejected'}`}>
+                  <span className={`font-mono font-bold ${gpsLocation.accuracy <= 8 ? 'text-status-approved' : gpsLocation.accuracy <= 10 ? 'text-status-pending' : 'text-status-rejected'}`}>
                     {Math.round(gpsLocation.accuracy)} מטר
-                    {gpsLocation.accuracy <= 10 ? ' (מעולה)' : gpsLocation.accuracy <= 30 ? ' (טוב)' : ' (סביר)'}
+                    {gpsLocation.accuracy <= 8 ? ' (מעולה)' : gpsLocation.accuracy <= 10 ? ' (מקובל)' : ' (לא מספיק)'}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -927,7 +1104,12 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
                   </p>
                   <div className="text-xs text-content-secondary space-y-1">
                     <div>קוד תחנה: <span className="font-mono">{stationValidation.station.stopCode}</span></div>
-                    <div>מרחק: <span className="font-mono">{stationValidation.station.distance}m</span></div>
+                    <div>
+                      מרחק מהתחנה: <span className="font-mono">{stationValidation.station.distance}m</span>
+                      {gpsLocation && (
+                        <span className="text-content-tertiary font-mono"> (±{Math.round(gpsLocation.accuracy)}m GPS)</span>
+                      )}
+                    </div>
                     <div>מקור: <span className="font-mono">GTFS - משרד התחבורה</span></div>
                   </div>
                 </>
@@ -1021,7 +1203,14 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
               {stationValidation.station ? (
                 <>
                   <span className="font-medium text-content-primary">תחנת {stationValidation.station.name}</span>
-                  <span className="text-xs text-content-secondary mr-auto">({stationValidation.station.distance}m)</span>
+                  <div className="mr-auto text-left">
+                    <span className="text-xs text-content-secondary font-mono">
+                      {stationValidation.station.distance}m
+                      {gpsLocation && (
+                        <span className="text-content-tertiary"> ±{Math.round(gpsLocation.accuracy)}m GPS</span>
+                      )}
+                    </span>
+                  </div>
                 </>
               ) : (
                 <>
@@ -1126,15 +1315,52 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
             </div>
           </div>
 
-          {/* Delay Minutes */}
+          {/* Scheduled Arrival Time — required for no_arrival / delay */}
+          {formData.incidentType !== 'no_stop' && (() => {
+            const timeStatus = getTimeWindowStatus()
+            return (
+              <div>
+                <label className="block text-sm font-medium text-content-secondary mb-2">
+                  שעת הגעה מתוכננת <span className="text-status-rejected">*</span>
+                  <span className="text-xs font-normal text-content-tertiary mr-2">(לפי Moovit / Google Maps)</span>
+                </label>
+                <input
+                  type="time"
+                  value={formData.scheduledTime || ''}
+                  onChange={(e) => handleInputChange('scheduledTime', e.target.value)}
+                  className="input-field"
+                />
+                {formData.scheduledTime && (
+                  <div className={`mt-2 flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${
+                    timeStatus.valid
+                      ? 'bg-status-approved-surface text-status-approved'
+                      : timeStatus.minutesLate !== undefined && timeStatus.minutesLate >= 0
+                        ? 'bg-status-pending-surface text-status-pending'
+                        : 'bg-surface-overlay text-content-secondary'
+                  }`}>
+                    {timeStatus.valid
+                      ? <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                      : <Clock className="w-4 h-4 flex-shrink-0" />
+                    }
+                    <span>{timeStatus.valid ? `האוטובוס מאחר ${timeStatus.minutesLate} דקות — ניתן לדווח` : timeStatus.reason}</span>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Delay Minutes (manual override, shown only for 'delay' type) */}
           {formData.incidentType === 'delay' && (
             <div>
-              <label className="block text-sm font-medium text-content-secondary mb-2">זמן עיכוב (בדקות)</label>
+              <label className="block text-sm font-medium text-content-secondary mb-2">
+                זמן עיכוב בפועל (דקות)
+                <span className="text-xs font-normal text-content-tertiary mr-2">(אופציונלי — יחושב אוטומטית)</span>
+              </label>
               <input
                 type="number"
                 value={formData.delayMinutes || ''}
                 onChange={(e) => handleInputChange('delayMinutes', parseInt(e.target.value) || 0)}
-                placeholder="20"
+                placeholder={getTimeWindowStatus().minutesLate?.toString() || '20'}
                 min="0"
                 className="input-field"
               />
@@ -1244,21 +1470,6 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
             </div>
           </div>
 
-          {/* Compensation Display */}
-          {compensation > 0 && (
-            <div className="bg-surface-overlay border border-accent-border rounded-xl p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Banknote className="w-8 h-8 text-accent" />
-                  <div>
-                    <p className="text-sm text-content-primary font-medium">פיצוי משוער</p>
-                    <p className="text-xs text-content-secondary">על פי תקנה 428ז</p>
-                  </div>
-                </div>
-                <p className="text-3xl font-bold text-gold">₪{compensation}</p>
-              </div>
-            </div>
-          )}
 
           {/* Evidence Chain Summary */}
           <div className="bg-surface-overlay rounded-lg p-4 border border-surface-border">
@@ -1275,15 +1486,41 @@ export default function PanicButton({ onPress, onIncidentSubmit }: PanicButtonPr
           </div>
         </div>
 
+        {/* Submit block reason */}
+        {(() => {
+          const blockReason = getSubmitBlockReason()
+          return blockReason ? (
+            <div className="mt-6 flex items-center gap-2 bg-status-rejected-surface border border-status-rejected/20 rounded-lg px-4 py-3">
+              <XCircle className="w-4 h-4 text-status-rejected flex-shrink-0" />
+              <p className="text-sm text-status-rejected">{blockReason}</p>
+            </div>
+          ) : null
+        })()}
+
         {/* Action Buttons */}
-        <div className="flex gap-3 mt-8">
+        <div className="flex gap-3 mt-4">
           <button type="button" onClick={handleCancel} className="btn-secondary flex-1 py-3 px-6">
             ביטול
           </button>
-          <button type="button" onClick={handleSubmit} className="btn-primary flex-1 py-3 px-6 flex items-center justify-center gap-2">
-            <span>שלח דיווח</span>
-            <ArrowRight className="w-5 h-5" />
-          </button>
+          {(() => {
+            const blockReason = getSubmitBlockReason()
+            return (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!!blockReason}
+                title={blockReason || undefined}
+                className={`flex-1 py-3 px-6 flex items-center justify-center gap-2 rounded-lg font-semibold transition-all ${
+                  blockReason
+                    ? 'bg-surface-overlay text-content-tertiary cursor-not-allowed border border-surface-border'
+                    : 'btn-primary'
+                }`}
+              >
+                <span>שלח דיווח</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+            )
+          })()}
         </div>
       </div>
 

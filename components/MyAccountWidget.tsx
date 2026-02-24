@@ -1,16 +1,13 @@
 'use client'
 
-import { PiggyBank, TrendingUp, Clock } from 'lucide-react'
+import { PiggyBank, TrendingUp, Clock, FileText } from 'lucide-react'
 
 interface MyAccountWidgetProps {
   receivedAmount: number
-  potentialAmount: number
+  activeClaims: number
 }
 
-export default function MyAccountWidget({ receivedAmount, potentialAmount }: MyAccountWidgetProps) {
-  const totalAmount = receivedAmount + potentialAmount
-  const receivedPercentage = totalAmount > 0 ? (receivedAmount / totalAmount) * 100 : 0
-
+export default function MyAccountWidget({ receivedAmount, activeClaims }: MyAccountWidgetProps) {
   return (
     <div className="card">
       <div className="flex items-center gap-3 mb-4">
@@ -33,39 +30,32 @@ export default function MyAccountWidget({ receivedAmount, potentialAmount }: MyA
           <div className="text-4xl font-bold tracking-tight text-gold">
             ₪{receivedAmount.toLocaleString('he-IL')}
           </div>
+          {receivedAmount === 0 && (
+            <p className="text-xs text-content-tertiary mt-1">
+              הכסף יופיע כאן ברגע שחברת האוטובוסים תשלם
+            </p>
+          )}
         </div>
 
-        {/* Progress Bar */}
-        <div className="relative">
-          <div className="h-3 bg-surface-overlay rounded-full overflow-hidden">
-            <div
-              className="h-full bg-status-approved transition-all duration-500 ease-out rounded-full"
-              style={{ width: `${receivedPercentage}%` }}
-            />
-          </div>
-        </div>
+        <div className="border-t border-surface-border" />
 
-        {/* Potential Amount */}
+        {/* Active Claims */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-content-secondary text-sm font-medium">בתהליך</span>
             <div className="flex items-center gap-1">
               <Clock className="w-4 h-4 text-content-tertiary" />
-              <span className="text-xs text-content-tertiary">ממתין</span>
+              <span className="text-xs text-content-tertiary">ממתין לטיפול</span>
             </div>
           </div>
-          <div className="text-3xl font-semibold text-content-secondary">
-            ₪{potentialAmount.toLocaleString('he-IL')}
-          </div>
-        </div>
-
-        {/* Total Summary */}
-        <div className="pt-4 border-t border-surface-border">
-          <div className="flex items-center justify-between">
-            <span className="text-content-secondary text-sm">סה״כ פוטנציאל</span>
-            <span className="text-xl font-bold text-content-primary">
-              ₪{totalAmount.toLocaleString('he-IL')}
-            </span>
+          <div className="flex items-baseline gap-2">
+            <div className="text-3xl font-semibold text-content-secondary">
+              {activeClaims}
+            </div>
+            <div className="flex items-center gap-1 text-content-tertiary">
+              <FileText className="w-4 h-4" />
+              <span className="text-sm">{activeClaims === 1 ? 'תיק' : 'תיקים'} פעילים</span>
+            </div>
           </div>
         </div>
       </div>

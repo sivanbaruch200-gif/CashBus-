@@ -98,10 +98,42 @@
 
 ## Current Status
 - **Phase:** 4 - Legal Automation & Admin System
-- **Last Updated:** 2026-02-17
-- **Status:** In Progress - PDF Hebrew Fix Deployed, Template Updates Needed
+- **Last Updated:** 2026-02-20
+- **Status:** In Progress - Payment/Subscription/Points system implemented, awaiting Stripe Price ID config
 
-## Recent Updates (2026-02-17)
+## Recent Updates (2026-02-20)
+### Payment / Subscription / Points System - Completed:
+**Phase A (Payments):**
+- ✅ `lib/commissionService.ts` - 20% commission, reversed payment flow
+- ✅ `lib/collectionWorkflow.ts` - 80/20 split emails
+- ✅ `app/api/admin/record-payment/route.ts` + `confirm-payout/route.ts`
+- ✅ `app/admin/claims/[id]/page.tsx` - 3-step payment UI
+- ✅ `supabase/migrations/payment_overhaul_v1.sql` - Run in DB ✓
+- ✅ `supabase/migrations/add_bank_details_to_templates.sql` - Run in DB ✓
+
+**Phase B (Subscriptions):**
+- ✅ `supabase/migrations/add_subscriptions.sql` - Run in DB ✓
+- ✅ `lib/subscriptionService.ts`
+- ✅ `app/api/stripe/create-subscription/route.ts`
+- ✅ `components/SubscriptionGate.tsx`
+- ✅ `app/subscription/page.tsx`
+- ⚠️ **MISSING:** Add `STRIPE_SUBSCRIPTION_PRICE_ID=price_xxx` to `.env.local`
+- ⚠️ **MISSING:** Add subscription Stripe webhook events in Dashboard
+
+**Phase C (Points/Loyalty):**
+- ✅ `supabase/migrations/add_points_system.sql` - **NEEDS to be run in DB**
+- ✅ `lib/pointsService.ts`
+- ✅ `app/api/points/daily-login/route.ts`
+- ✅ `components/PointsBadge.tsx` - Add to headers as needed
+- ✅ `components/DailyLoginReward.tsx` - Add to authenticated pages
+- ✅ `app/subscription/page.tsx` - Points redemption section added
+
+### Points System Rules:
+- 10 pts per incident, 50 pts per claim, 5 pts daily login + streak bonus (max 30/day)
+- 300 pts = 1 free month subscription
+- Streak resets if user skips a day
+
+## Previous Updates (2026-02-17)
 ### PDF Hebrew Rendering - Fixed & Deployed:
 1. ✅ **Hebrew font** - Noto Sans Hebrew loaded from `public/fonts/NotoSansHebrew-Regular.ttf`
 2. ✅ **processRTL()** - Fixed: simple full reversal + bracket mirroring (removed broken LTR re-reversal that caused numbers to display backwards)

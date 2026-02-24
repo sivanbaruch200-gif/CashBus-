@@ -33,6 +33,8 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null)
   const [idError, setIdError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [ageConsent, setAgeConsent] = useState(false)
+  const [feeConsent, setFeeConsent] = useState(false)
 
   const handleAuthAction = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,6 +45,11 @@ export default function AuthPage() {
     if (mode === 'register') {
       if (idError || !fullName || !phone || !idNumber) {
         setError('נא למלא את כל שדות ההרשמה כראוי.')
+        setIsLoading(false)
+        return
+      }
+      if (!ageConsent || !feeConsent) {
+        setError('יש לאשר את שני התנאים לפני ההרשמה.')
         setIsLoading(false)
         return
       }
@@ -199,6 +206,36 @@ export default function AuthPage() {
                     />
                   </div>
                   {idError && <p className="text-xs text-red-400 mt-1">{idError}</p>}
+
+                  {/* Age Consent */}
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={ageConsent}
+                      onChange={(e) => setAgeConsent(e.target.checked)}
+                      className="mt-1 w-4 h-4 accent-accent shrink-0"
+                      required
+                    />
+                    <span className="text-xs text-content-secondary leading-relaxed">
+                      אני מאשר/ת שאני מעל גיל 18, או שקיבלתי הסכמת הורה/אפוטרופוס בכתב לשימוש בשירות
+                    </span>
+                  </label>
+
+                  {/* Fee Model Consent */}
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={feeConsent}
+                      onChange={(e) => setFeeConsent(e.target.checked)}
+                      className="mt-1 w-4 h-4 accent-accent shrink-0"
+                      required
+                    />
+                    <span className="text-xs text-content-secondary leading-relaxed">
+                      הבנתי ואני מסכים/ה למודל עמלת ההצלחה:{' '}
+                      <strong className="text-accent">80% לי, 20% ל-CashBus</strong>{' '}
+                      — אין תשלום מראש, אשלם רק אם אקבל פיצוי
+                    </span>
+                  </label>
                 </>
               )}
 

@@ -48,12 +48,26 @@ export async function POST(request: NextRequest) {
       bccList.push(bcc)
     }
 
+    // Validate pdfUrl is from our Supabase storage only (prevent SSRF)
+    const supabaseStorageBase = process.env.NEXT_PUBLIC_SUPABASE_URL + '/storage/v1/object'
+    if (!pdfUrl.startsWith(supabaseStorageBase)) {
+      return NextResponse.json({ error: 'Invalid PDF URL' }, { status: 400 })
+    }
+
     // Download PDF from URL to attach to email
     const pdfResponse = await fetch(pdfUrl)
     if (!pdfResponse.ok) {
       throw new Error('Failed to download PDF from storage')
     }
+    // Enforce size limit (10 MB)
+    const contentLength = pdfResponse.headers.get('content-length')
+    if (contentLength && parseInt(contentLength) > 10 * 1024 * 1024) {
+      throw new Error('PDF file too large')
+    }
     const pdfBuffer = await pdfResponse.arrayBuffer()
+    if (pdfBuffer.byteLength > 10 * 1024 * 1024) {
+      throw new Error('PDF file too large')
+    }
 
     // Send email with Resend
     const { data, error } = await getResend().emails.send({

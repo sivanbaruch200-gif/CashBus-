@@ -17,7 +17,7 @@ import {
 
 interface LetterTemplate {
   id: string
-  template_type: 'initial_warning' | 'reminder_14_days' | 'lawsuit_draft'
+  template_type: 'initial_warning' | 'reminder_21_days' | 'lawsuit_draft'
   template_name: string
   template_content: string
   is_active: boolean
@@ -33,9 +33,9 @@ const TEMPLATE_TYPES = {
     icon: FileText,
     statusColor: 'status-legal',
   },
-  reminder_14_days: {
+  reminder_21_days: {
     label: "שלב ב': התראה לפני תביעה",
-    description: 'מכתב התראה לפני הגשת תביעה - נשלח 14 יום לאחר המכתב הראשוני',
+    description: 'מכתב התראה לפני הגשת תביעה - נשלח כחלק ממחזור 21 יום (תזכורות שבועיות)',
     icon: AlertTriangle,
     statusColor: 'status-pending',
   },
@@ -73,7 +73,7 @@ export default function TemplatesPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'initial_warning' | 'reminder_14_days' | 'lawsuit_draft'>('initial_warning')
+  const [activeTab, setActiveTab] = useState<'initial_warning' | 'reminder_21_days' | 'lawsuit_draft'>('initial_warning')
   const [editedContent, setEditedContent] = useState<Record<string, string>>({})
   const [showPreview, setShowPreview] = useState(false)
 
@@ -225,7 +225,7 @@ export default function TemplatesPage() {
                   <TabIcon className="w-4 h-4" />
                   <span className="hidden md:inline">{config.label}</span>
                   <span className="md:hidden">
-                    {type === 'initial_warning' ? 'א' : type === 'reminder_14_days' ? 'ב' : 'ג'}
+                    {type === 'initial_warning' ? 'א' : type === 'reminder_21_days' ? 'ב' : 'ג'}
                   </span>
                 </div>
               </button>

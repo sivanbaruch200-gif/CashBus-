@@ -100,7 +100,7 @@ async function ensureUserStats(userId: string) {
     .from('user_gamification')
     .select('*')
     .eq('user_id', userId)
-    .single()
+    .maybeSingle()
 
   if (error || !data) {
     const { data: newData, error: insertError } = await supabase
@@ -128,7 +128,7 @@ export async function performCheckin(userId: string): Promise<{ points: number; 
     .select('id')
     .eq('user_id', userId)
     .eq('check_date', today)
-    .single()
+    .maybeSingle()
 
   if (existing) {
     return { points: 0, newAchievements: [] }
@@ -146,13 +146,18 @@ export async function performCheckin(userId: string): Promise<{ points: number; 
   let pointsEarned = 10 // Base check-in points
 
   // Insert check-in
-  await supabase
+  const { error: checkinError } = await supabase
     .from('user_checkins')
     .insert({
       user_id: userId,
       check_date: today,
       points_earned: pointsEarned,
     })
+
+  if (checkinError) {
+    console.error('Error inserting checkin:', checkinError)
+    return { points: 0, newAchievements: [] }
+  }
 
   // Update gamification stats
   const stats = await ensureUserStats(userId)

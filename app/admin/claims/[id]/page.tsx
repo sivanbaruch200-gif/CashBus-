@@ -6,7 +6,6 @@ import {
   supabase,
   updateIncidentToClaimed,
   adminUpdateIncidentStatus,
-  adminMarkIncidentPaid,
 } from '@/lib/supabase'
 import { calculateCompensation, getBusCompanyName } from '@/lib/compensation'
 import {
@@ -34,6 +33,8 @@ import {
   Banknote,
   Gavel,
   Scale,
+  ArrowDownUp,
+  CreditCard,
 } from 'lucide-react'
 
 interface IncidentDetail {
@@ -59,6 +60,28 @@ interface IncidentDetail {
   customer_id: string
 }
 
+interface ClaimPaymentInfo {
+  incoming_payment_amount?: number
+  incoming_payment_date?: string
+  customer_payout_amount?: number
+  customer_payout_completed?: boolean
+  customer_payout_date?: string
+  customer_payout_reference?: string
+  cashbus_commission_amount?: number
+}
+
+interface IncomingPayment {
+  id: string
+  amount: number
+  commission_amount: number
+  customer_payout: number
+  customer_payout_status: string
+  customer_payout_reference?: string
+  reference_number?: string
+  received_date: string
+  notes?: string
+}
+
 export default function ClaimDetailPage() {
   const router = useRouter()
   const params = useParams()
@@ -69,14 +92,34 @@ export default function ClaimDetailPage() {
   const [generatingPDF, setGeneratingPDF] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [statusUpdateSuccess, setStatusUpdateSuccess] = useState<string | null>(null)
+
+  // Payment flow state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentStep, setPaymentStep] = useState<'record' | 'split' | 'payout'>('record')
   const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentSource, setPaymentSource] = useState('')
+  const [paymentReference, setPaymentReference] = useState('')
+  const [paymentNotes, setPaymentNotes] = useState('')
+  const [payoutReference, setPayoutReference] = useState('')
+  const [claimPayment, setClaimPayment] = useState<ClaimPaymentInfo | null>(null)
+  const [incomingPayment, setIncomingPayment] = useState<IncomingPayment | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [accessToken, setAccessToken] = useState<string | null>(null)
 
   useEffect(() => {
     if (incidentId) {
       loadIncidentDetails()
+      loadCurrentUser()
     }
   }, [incidentId])
+
+  const loadCurrentUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      setCurrentUserId(session.user.id)
+      setAccessToken(session.access_token)
+    }
+  }
 
   const loadIncidentDetails = async () => {
     try {
@@ -105,10 +148,45 @@ export default function ClaimDetailPage() {
       }
 
       setIncident(transformedData)
+
+      // Load claim payment info if exists
+      await loadClaimPaymentInfo(data.id)
+
       setLoading(false)
     } catch (error) {
       console.error('Error loading incident details:', error)
       setLoading(false)
+    }
+  }
+
+  const loadClaimPaymentInfo = async (incidentId: string) => {
+    try {
+      // Find claim for this incident
+      const { data: claims } = await supabase
+        .from('claims')
+        .select('id, incoming_payment_amount, incoming_payment_date, customer_payout_amount, customer_payout_completed, customer_payout_date, customer_payout_reference, cashbus_commission_amount')
+        .contains('incident_ids', [incidentId])
+        .limit(1)
+
+      if (claims && claims.length > 0) {
+        setClaimPayment(claims[0])
+
+        // Load incoming payment details
+        if (claims[0].incoming_payment_amount) {
+          const { data: payments } = await supabase
+            .from('incoming_payments')
+            .select('*')
+            .eq('claim_id', claims[0].id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+
+          if (payments && payments.length > 0) {
+            setIncomingPayment(payments[0])
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading payment info:', error)
     }
   }
 
@@ -142,9 +220,9 @@ export default function ClaimDetailPage() {
 
       const pdfBlob = await generateLegalPDF(type, customerData)
       const filename = `CashBus_${type}_${incident.customer_name}.pdf`
-      
+
       downloadPDF(pdfBlob, filename)
-      
+
       setStatusUpdateSuccess(`מכתב ${type === 'demand' ? 'דרישה' : type === 'warning' ? 'התראה' : 'טיוטת תביעה'} הופק בהצלחה!`)
     } catch (error) {
       alert('שגיאה ביצירת ה-PDF')
@@ -153,23 +231,140 @@ export default function ClaimDetailPage() {
     }
   }
 
-  const handleMarkAsPaid = async () => {
-    if (!incident || !paymentAmount) return
+  const handleRecordPayment = async () => {
+    if (!incident || !paymentAmount || !currentUserId || !accessToken) return
     setUpdatingStatus(true)
+
     try {
-      await adminMarkIncidentPaid(incident.id, parseFloat(paymentAmount))
-      setShowPaymentModal(false)
+      const response = await fetch('/api/admin/record-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          claimId: incident.id,
+          amount: parseFloat(paymentAmount),
+          paymentSource: paymentSource || undefined,
+          referenceNumber: paymentReference || undefined,
+          notes: paymentNotes || undefined,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        // If claim doesn't exist, record directly on incident
+        if (result.error === 'Claim not found') {
+          // Try to find claim by incident
+          const { data: claims } = await supabase
+            .from('claims')
+            .select('id')
+            .contains('incident_ids', [incident.id])
+            .limit(1)
+
+          if (!claims || claims.length === 0) {
+            alert('לא נמצאה תביעה עבור אירוע זה. יש ליצור תביעה קודם.')
+            return
+          }
+
+          // Retry with the actual claim ID
+          const retryResponse = await fetch('/api/admin/record-payment', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({
+              claimId: claims[0].id,
+              amount: parseFloat(paymentAmount),
+              paymentSource: paymentSource || undefined,
+              referenceNumber: paymentReference || undefined,
+              notes: paymentNotes || undefined,
+            }),
+          })
+
+          const retryResult = await retryResponse.json()
+          if (!retryResponse.ok) {
+            throw new Error(retryResult.error || 'שגיאה ברישום התשלום')
+          }
+        } else {
+          throw new Error(result.error || 'שגיאה ברישום התשלום')
+        }
+      }
+
+      setPaymentStep('split')
       setStatusUpdateSuccess('התשלום נרשם בהצלחה!')
-      loadIncidentDetails()
+      await loadIncidentDetails()
     } catch (error) {
-      alert('שגיאה ברישום התשלום')
+      alert(error instanceof Error ? error.message : 'שגיאה ברישום התשלום')
     } finally {
       setUpdatingStatus(false)
     }
   }
 
+  const handleConfirmPayout = async () => {
+    if (!incomingPayment || !payoutReference || !currentUserId || !accessToken) return
+    setUpdatingStatus(true)
+
+    try {
+      // Find claim ID
+      const { data: claims } = await supabase
+        .from('claims')
+        .select('id')
+        .contains('incident_ids', [incidentId])
+        .limit(1)
+
+      if (!claims || claims.length === 0) {
+        throw new Error('Claim not found')
+      }
+
+      const response = await fetch('/api/admin/confirm-payout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          claimId: claims[0].id,
+          paymentId: incomingPayment.id,
+          reference: payoutReference,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'שגיאה באישור ההעברה')
+      }
+
+      setShowPaymentModal(false)
+      setStatusUpdateSuccess('ההעברה ללקוח אושרה בהצלחה!')
+      await loadIncidentDetails()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'שגיאה באישור ההעברה')
+    } finally {
+      setUpdatingStatus(false)
+    }
+  }
+
+  const openPaymentModal = () => {
+    if (claimPayment?.incoming_payment_amount && !claimPayment?.customer_payout_completed) {
+      setPaymentStep('payout')
+    } else if (claimPayment?.customer_payout_completed) {
+      return // Everything done
+    } else {
+      setPaymentStep('record')
+    }
+    setShowPaymentModal(true)
+  }
+
   if (loading) return <div className="p-20 text-center text-content-tertiary">טוען נתונים...</div>
   if (!incident) return <div className="p-20 text-center text-status-rejected">תביעה לא נמצאה</div>
+
+  const amount = parseFloat(paymentAmount) || 0
+  const commissionPreview = Math.round(amount * 0.20 * 100) / 100
+  const payoutPreview = Math.round(amount * 0.80 * 100) / 100
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto rtl" dir="rtl">
@@ -188,8 +383,19 @@ export default function ClaimDetailPage() {
         </div>
       </div>
 
+      {/* Status Update Success */}
+      {statusUpdateSuccess && (
+        <div className="mb-6 bg-status-approved-surface border border-status-approved/20 text-status-approved p-4 rounded-lg flex items-center gap-2">
+          <CheckCircle className="w-5 h-5" />
+          <span>{statusUpdateSuccess}</span>
+          <button onClick={() => setStatusUpdateSuccess(null)} className="mr-auto text-content-tertiary hover:text-content-primary">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
+
         {/* עמודה ימנית - פעולות משפטיות */}
         <div className="md:col-span-2 space-y-6">
           <div className="card">
@@ -198,7 +404,7 @@ export default function ClaimDetailPage() {
             </h2>
             <div className="grid grid-cols-1 gap-4">
               {/* מכתב דרישה */}
-              <button 
+              <button
                 onClick={() => handleGenerateLetter('demand')}
                 disabled={!!generatingPDF}
                 className="flex items-center justify-between p-4 border border-surface-border rounded-lg hover:bg-surface-border transition-all"
@@ -214,7 +420,7 @@ export default function ClaimDetailPage() {
               </button>
 
               {/* מכתב התראה */}
-              <button 
+              <button
                 onClick={() => handleGenerateLetter('warning')}
                 disabled={!!generatingPDF}
                 className="flex items-center justify-between p-4 border border-surface-border rounded-lg hover:bg-surface-border"
@@ -230,7 +436,7 @@ export default function ClaimDetailPage() {
               </button>
 
               {/* טיוטת כתב תביעה */}
-              <button 
+              <button
                 onClick={() => handleGenerateLetter('lawsuit')}
                 disabled={!!generatingPDF}
                 className="flex items-center justify-between p-4 border border-surface-border rounded-lg hover:bg-surface-border"
@@ -269,6 +475,56 @@ export default function ClaimDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Payment Status Card */}
+          {claimPayment?.incoming_payment_amount && (
+            <div className="card border-2 border-status-approved/30">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-content-primary">
+                <ArrowDownUp className="w-6 h-6 text-status-approved" /> מצב תשלום (80/20)
+              </h2>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="bg-surface-overlay p-4 rounded-lg text-center">
+                  <p className="text-xs text-content-tertiary mb-1">התקבל מהחברה</p>
+                  <p className="text-xl font-bold text-content-primary">₪{claimPayment.incoming_payment_amount?.toLocaleString('he-IL')}</p>
+                </div>
+                <div className="bg-surface-overlay p-4 rounded-lg text-center">
+                  <p className="text-xs text-content-tertiary mb-1">עמלת CashBus (20%)</p>
+                  <p className="text-xl font-bold text-accent">₪{claimPayment.cashbus_commission_amount?.toLocaleString('he-IL')}</p>
+                </div>
+                <div className="bg-surface-overlay p-4 rounded-lg text-center">
+                  <p className="text-xs text-content-tertiary mb-1">ללקוח (80%)</p>
+                  <p className="text-xl font-bold text-status-approved">₪{claimPayment.customer_payout_amount?.toLocaleString('he-IL')}</p>
+                </div>
+              </div>
+
+              {/* Payout status */}
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-surface-overlay">
+                {claimPayment.customer_payout_completed ? (
+                  <>
+                    <CheckCircle className="w-5 h-5 text-status-approved" />
+                    <span className="text-status-approved font-semibold">הועבר ללקוח</span>
+                    {claimPayment.customer_payout_reference && (
+                      <span className="text-content-tertiary text-sm mr-2">| אסמכתא: {claimPayment.customer_payout_reference}</span>
+                    )}
+                    {claimPayment.customer_payout_date && (
+                      <span className="text-content-tertiary text-sm mr-2">| {new Date(claimPayment.customer_payout_date).toLocaleDateString('he-IL')}</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-5 h-5 text-status-pending" />
+                    <span className="text-status-pending font-semibold">ממתין להעברה ללקוח</span>
+                    <button
+                      onClick={() => { setPaymentStep('payout'); setShowPaymentModal(true) }}
+                      className="mr-auto px-4 py-1.5 bg-status-approved text-white rounded-lg text-sm font-semibold hover:bg-opacity-90"
+                    >
+                      אשר העברה
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* עמודה שמאלית - פרטי לקוח וכספים */}
@@ -283,12 +539,39 @@ export default function ClaimDetailPage() {
                 busCompany: incident.bus_company
               }).totalCompensation}</span>
             </div>
-            <button 
-              onClick={() => setShowPaymentModal(true)}
-              className="w-full py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2"
-            >
-              <Banknote className="w-5 h-5" /> סמן כהתקבל תשלום
-            </button>
+
+            {claimPayment?.incoming_payment_amount ? (
+              <div className="space-y-2 text-sm mb-4">
+                <div className="flex justify-between">
+                  <span className="text-content-tertiary">התקבל בפועל:</span>
+                  <span className="font-bold text-status-approved">₪{claimPayment.incoming_payment_amount?.toLocaleString('he-IL')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-content-tertiary">עמלה (20%):</span>
+                  <span className="font-bold text-accent">₪{claimPayment.cashbus_commission_amount?.toLocaleString('he-IL')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-content-tertiary">ללקוח (80%):</span>
+                  <span className="font-bold">₪{claimPayment.customer_payout_amount?.toLocaleString('he-IL')}</span>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={openPaymentModal}
+                className="w-full py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2"
+              >
+                <Banknote className="w-5 h-5" /> רשום תשלום שהתקבל
+              </button>
+            )}
+
+            {claimPayment?.incoming_payment_amount && !claimPayment?.customer_payout_completed && (
+              <button
+                onClick={() => { setPaymentStep('payout'); setShowPaymentModal(true) }}
+                className="w-full py-3 bg-accent hover:bg-accent-light text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2"
+              >
+                <CreditCard className="w-5 h-5" /> אשר העברה ללקוח
+              </button>
+            )}
           </div>
 
           <div className="card">
@@ -305,33 +588,204 @@ export default function ClaimDetailPage() {
       {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowPaymentModal(false)}>
-          <div className="bg-surface-raised p-6 rounded-xl shadow-glass max-w-md w-full mx-4 border border-surface-border" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-content-primary">
-              <Banknote className="w-6 h-6 text-status-approved" /> רישום תשלום
-            </h3>
-            <p className="text-content-secondary mb-4">הזן את סכום הפיצוי שהתקבל בפועל:</p>
-            <input
-              type="number"
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(e.target.value)}
-              placeholder="סכום ב-₪"
-              className="input-field mb-4 text-lg"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={handleMarkAsPaid}
-                disabled={updatingStatus || !paymentAmount}
-                className="flex-1 py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold disabled:opacity-50"
-              >
-                {updatingStatus ? <Loader2 className="animate-spin mx-auto" /> : 'אשר תשלום'}
-              </button>
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="px-6 py-3 border border-surface-border text-content-secondary rounded-lg hover:bg-surface-overlay"
-              >
-                ביטול
-              </button>
-            </div>
+          <div className="bg-surface-raised p-6 rounded-xl shadow-glass max-w-lg w-full mx-4 border border-surface-border" onClick={e => e.stopPropagation()}>
+
+            {/* Step 1: Record Incoming Payment */}
+            {paymentStep === 'record' && (
+              <>
+                <h3 className="text-xl font-bold mb-2 flex items-center gap-2 text-content-primary">
+                  <Banknote className="w-6 h-6 text-status-approved" /> רישום תשלום נכנס
+                </h3>
+                <p className="text-content-secondary mb-4 text-sm">תשלום שהתקבל מחברת האוטובוסים לחשבון CashBus</p>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">סכום שהתקבל (₪) *</label>
+                    <input
+                      type="number"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      placeholder="סכום ב-₪"
+                      className="input-field text-lg"
+                    />
+                  </div>
+
+                  {amount > 0 && (
+                    <div className="bg-surface-overlay p-4 rounded-lg border border-surface-border">
+                      <p className="text-sm font-semibold text-content-primary mb-2">חלוקה 80/20:</p>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-content-tertiary">עמלת CashBus (20%):</span>
+                        <span className="font-bold text-accent">₪{commissionPreview.toLocaleString('he-IL')}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-content-tertiary">לתשלום ללקוח (80%):</span>
+                        <span className="font-bold text-status-approved">₪{payoutPreview.toLocaleString('he-IL')}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">מקור התשלום</label>
+                    <input
+                      type="text"
+                      value={paymentSource}
+                      onChange={(e) => setPaymentSource(e.target.value)}
+                      placeholder="שם החברה / מקור"
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">מספר אסמכתא</label>
+                    <input
+                      type="text"
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                      placeholder="מספר העברה / אסמכתא"
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">הערות</label>
+                    <textarea
+                      value={paymentNotes}
+                      onChange={(e) => setPaymentNotes(e.target.value)}
+                      placeholder="הערות נוספות..."
+                      className="input-field"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={handleRecordPayment}
+                    disabled={updatingStatus || !paymentAmount}
+                    className="flex-1 py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {updatingStatus ? <Loader2 className="animate-spin w-5 h-5" /> : <><Banknote className="w-5 h-5" /> רשום תשלום</>}
+                  </button>
+                  <button
+                    onClick={() => setShowPaymentModal(false)}
+                    className="px-6 py-3 border border-surface-border text-content-secondary rounded-lg hover:bg-surface-overlay"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Step 2: Show Split (after recording) */}
+            {paymentStep === 'split' && incomingPayment && (
+              <>
+                <h3 className="text-xl font-bold mb-2 flex items-center gap-2 text-content-primary">
+                  <CheckCircle className="w-6 h-6 text-status-approved" /> תשלום נרשם בהצלחה!
+                </h3>
+
+                <div className="bg-surface-overlay p-4 rounded-lg my-4 space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-content-tertiary">סכום שהתקבל:</span>
+                    <span className="font-bold text-lg">₪{incomingPayment.amount?.toLocaleString('he-IL')}</span>
+                  </div>
+                  <hr className="border-surface-border" />
+                  <div className="flex justify-between">
+                    <span className="text-content-tertiary">עמלת CashBus (20%):</span>
+                    <span className="font-bold text-accent">₪{incomingPayment.commission_amount?.toLocaleString('he-IL')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-content-tertiary">לתשלום ללקוח (80%):</span>
+                    <span className="font-bold text-status-approved text-lg">₪{incomingPayment.customer_payout?.toLocaleString('he-IL')}</span>
+                  </div>
+                </div>
+
+                <p className="text-content-secondary text-sm mb-4">
+                  יש להעביר ₪{incomingPayment.customer_payout?.toLocaleString('he-IL')} לחשבון הבנק של הלקוח ולאשר.
+                </p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setPaymentStep('payout')}
+                    className="flex-1 py-3 bg-accent hover:bg-accent-light text-white rounded-lg font-bold flex items-center justify-center gap-2"
+                  >
+                    <CreditCard className="w-5 h-5" /> אשר העברה ללקוח
+                  </button>
+                  <button
+                    onClick={() => setShowPaymentModal(false)}
+                    className="px-6 py-3 border border-surface-border text-content-secondary rounded-lg hover:bg-surface-overlay"
+                  >
+                    מאוחר יותר
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Step 3: Confirm Payout via Bit */}
+            {paymentStep === 'payout' && (
+              <>
+                <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-content-primary">
+                  <CreditCard className="w-6 h-6 text-accent" /> העברה ב-Bit ללקוח
+                </h3>
+
+                {/* Bit payment details */}
+                <div className="bg-surface-overlay rounded-xl p-4 mb-4 space-y-3 border border-surface-border">
+                  <div className="flex justify-between items-center">
+                    <span className="text-content-tertiary text-sm">סכום להעברה</span>
+                    <span className="text-2xl font-bold text-status-approved">
+                      ₪{(claimPayment?.customer_payout_amount ?? (incomingPayment ? Math.round(incomingPayment.amount * 0.8) : 0)).toLocaleString('he-IL')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-content-tertiary text-sm">טלפון הלקוח (Bit)</span>
+                    <span className="font-bold text-content-primary text-lg tracking-wider">{incident?.customer_phone}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-content-tertiary text-sm">שם</span>
+                    <span className="text-content-secondary">{incident?.customer_name}</span>
+                  </div>
+                </div>
+
+                {/* Open Bit button */}
+                <a
+                  href={`bit://send?phone=${incident?.customer_phone?.replace(/\D/g, '')}&amount=${claimPayment?.customer_payout_amount ?? (incomingPayment ? Math.round(incomingPayment.amount * 0.8) : 0)}&description=${encodeURIComponent('פיצוי CashBus')}`}
+                  className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-white mb-4"
+                  style={{ background: 'linear-gradient(135deg, #1a3faa, #2563eb)' }}
+                >
+                  <span className="text-xl">💙</span> פתח Bit ושלח
+                </a>
+
+                <p className="text-xs text-content-tertiary text-center mb-4">
+                  לאחר שליחת הביט, הכנס את מספר הפעולה שמופיע באישור
+                </p>
+
+                <div>
+                  <label className="block text-sm font-semibold mb-1">מספר פעולת Bit *</label>
+                  <input
+                    type="text"
+                    value={payoutReference}
+                    onChange={(e) => setPayoutReference(e.target.value)}
+                    placeholder="מספר הפעולה מאישור הביט"
+                    className="input-field"
+                  />
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={handleConfirmPayout}
+                    disabled={updatingStatus || !payoutReference}
+                    className="flex-1 py-3 bg-status-approved hover:bg-opacity-90 text-white rounded-lg font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {updatingStatus ? <Loader2 className="animate-spin w-5 h-5" /> : <><CheckCircle className="w-5 h-5" /> אשר העברה</>}
+                  </button>
+                  <button
+                    onClick={() => setShowPaymentModal(false)}
+                    className="px-6 py-3 border border-surface-border text-content-secondary rounded-lg hover:bg-surface-overlay"
+                  >
+                    ביטול
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

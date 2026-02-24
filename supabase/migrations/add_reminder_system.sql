@@ -1,7 +1,10 @@
 -- =====================================================
--- CashBus - GYRO Reminder System (14-Day Loop)
+-- CashBus - Reminder System (21-Day Cycle, Weekly)
 -- Migration: Add letter_reminders table and automation
--- Date: 2026-01-15
+-- Date: 2026-02-17 (Updated per lawyer consultation)
+-- =====================================================
+-- IMPORTANT: Lawyer ruled that reminders every 2 days = harassment.
+-- Minimum interval: 7 days (weekly). Deadline: 21 days.
 -- =====================================================
 
 -- =====================================================
@@ -17,34 +20,20 @@ CREATE TABLE IF NOT EXISTS public.letter_reminders (
     initial_letter_sent_at TIMESTAMP WITH TIME ZONE NOT NULL,
     days_since_initial INTEGER DEFAULT 0,
 
-    -- Reminder schedule (14-Day Loop)
-    -- Day 0: Initial letter
-    -- Day 2: Status check reminder
-    -- Day 5: Second warning + evidence
-    -- Day 8: Legal escalation notice
-    -- Day 11: Final warning
-    -- Day 12-14: Daily pressure emails
+    -- Reminder schedule (21-Day Cycle, Weekly intervals)
+    -- Day 0: Initial demand letter (21-day deadline)
+    -- Day 7: First reminder + digital evidence summary
+    -- Day 14: Second reminder + legal escalation warning
+    -- Day 21: Final notice - lawsuit draft ready
 
-    day_2_sent BOOLEAN DEFAULT FALSE,
-    day_2_sent_at TIMESTAMP WITH TIME ZONE,
-
-    day_5_sent BOOLEAN DEFAULT FALSE,
-    day_5_sent_at TIMESTAMP WITH TIME ZONE,
-
-    day_8_sent BOOLEAN DEFAULT FALSE,
-    day_8_sent_at TIMESTAMP WITH TIME ZONE,
-
-    day_11_sent BOOLEAN DEFAULT FALSE,
-    day_11_sent_at TIMESTAMP WITH TIME ZONE,
-
-    day_12_sent BOOLEAN DEFAULT FALSE,
-    day_12_sent_at TIMESTAMP WITH TIME ZONE,
-
-    day_13_sent BOOLEAN DEFAULT FALSE,
-    day_13_sent_at TIMESTAMP WITH TIME ZONE,
+    day_7_sent BOOLEAN DEFAULT FALSE,
+    day_7_sent_at TIMESTAMP WITH TIME ZONE,
 
     day_14_sent BOOLEAN DEFAULT FALSE,
     day_14_sent_at TIMESTAMP WITH TIME ZONE,
+
+    day_21_sent BOOLEAN DEFAULT FALSE,
+    day_21_sent_at TIMESTAMP WITH TIME ZONE,
 
     -- Status tracking
     status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paid', 'cancelled', 'filed')),
@@ -66,7 +55,7 @@ CREATE TABLE IF NOT EXISTS public.letter_reminders (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-COMMENT ON TABLE public.letter_reminders IS 'GYRO Model: 14-Day reminder automation for legal letters';
+COMMENT ON TABLE public.letter_reminders IS '21-Day reminder automation: weekly intervals per lawyer guidance';
 COMMENT ON COLUMN public.letter_reminders.days_since_initial IS 'Auto-calculated: days since initial letter sent';
 COMMENT ON COLUMN public.letter_reminders.status IS 'active: sending reminders | paid: company paid | cancelled: user cancelled | filed: lawsuit filed';
 
@@ -90,15 +79,13 @@ ALTER TABLE public.legal_documents
 ALTER TABLE public.legal_documents
     ADD COLUMN IF NOT EXISTS reminder_type TEXT CHECK (reminder_type IN (
         'initial',
-        'status_check',
-        'second_warning',
-        'escalation',
-        'final_warning',
-        'daily_pressure',
+        'first_reminder',
+        'escalation_warning',
+        'final_notice',
         NULL
     ));
 
-COMMENT ON COLUMN public.legal_documents.letter_sequence IS '0=initial letter, 1=day 2, 2=day 5, 3=day 8, 4=day 11, 5=day 12, 6=day 13, 7=day 14';
+COMMENT ON COLUMN public.legal_documents.letter_sequence IS '0=initial letter, 1=day 7, 2=day 14, 3=day 21';
 COMMENT ON COLUMN public.legal_documents.reminder_type IS 'Type of reminder letter for tracking purposes';
 
 -- =====================================================
@@ -142,13 +129,9 @@ BEGIN
         lr.user_id,
         EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER AS days_since_initial,
         CASE
+            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 21 AND NOT lr.day_21_sent THEN 'day_21'
             WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 14 AND NOT lr.day_14_sent THEN 'day_14'
-            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 13 AND NOT lr.day_13_sent THEN 'day_13'
-            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 12 AND NOT lr.day_12_sent THEN 'day_12'
-            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 11 AND NOT lr.day_11_sent THEN 'day_11'
-            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 8 AND NOT lr.day_8_sent THEN 'day_8'
-            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 5 AND NOT lr.day_5_sent THEN 'day_5'
-            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 2 AND NOT lr.day_2_sent THEN 'day_2'
+            WHEN EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER >= 7 AND NOT lr.day_7_sent THEN 'day_7'
             ELSE 'none'
         END AS next_reminder_type,
         p.full_name AS customer_name,
@@ -159,7 +142,7 @@ BEGIN
     JOIN public.profiles p ON lr.user_id = p.id
     JOIN public.claims c ON lr.claim_id = c.id
     WHERE lr.status = 'active'
-        AND EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER <= 14
+        AND EXTRACT(DAY FROM (NOW() - lr.initial_letter_sent_at))::INTEGER <= 21
     ORDER BY days_since_initial DESC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -178,20 +161,12 @@ BEGIN
         total_emails_sent = total_emails_sent + 1,
         last_email_sent_at = NOW(),
         updated_at = NOW(),
-        day_2_sent = CASE WHEN p_reminder_type = 'day_2' THEN TRUE ELSE day_2_sent END,
-        day_2_sent_at = CASE WHEN p_reminder_type = 'day_2' THEN NOW() ELSE day_2_sent_at END,
-        day_5_sent = CASE WHEN p_reminder_type = 'day_5' THEN TRUE ELSE day_5_sent END,
-        day_5_sent_at = CASE WHEN p_reminder_type = 'day_5' THEN NOW() ELSE day_5_sent_at END,
-        day_8_sent = CASE WHEN p_reminder_type = 'day_8' THEN TRUE ELSE day_8_sent END,
-        day_8_sent_at = CASE WHEN p_reminder_type = 'day_8' THEN NOW() ELSE day_8_sent_at END,
-        day_11_sent = CASE WHEN p_reminder_type = 'day_11' THEN TRUE ELSE day_11_sent END,
-        day_11_sent_at = CASE WHEN p_reminder_type = 'day_11' THEN NOW() ELSE day_11_sent_at END,
-        day_12_sent = CASE WHEN p_reminder_type = 'day_12' THEN TRUE ELSE day_12_sent END,
-        day_12_sent_at = CASE WHEN p_reminder_type = 'day_12' THEN NOW() ELSE day_12_sent_at END,
-        day_13_sent = CASE WHEN p_reminder_type = 'day_13' THEN TRUE ELSE day_13_sent END,
-        day_13_sent_at = CASE WHEN p_reminder_type = 'day_13' THEN NOW() ELSE day_13_sent_at END,
+        day_7_sent = CASE WHEN p_reminder_type = 'day_7' THEN TRUE ELSE day_7_sent END,
+        day_7_sent_at = CASE WHEN p_reminder_type = 'day_7' THEN NOW() ELSE day_7_sent_at END,
         day_14_sent = CASE WHEN p_reminder_type = 'day_14' THEN TRUE ELSE day_14_sent END,
-        day_14_sent_at = CASE WHEN p_reminder_type = 'day_14' THEN NOW() ELSE day_14_sent_at END
+        day_14_sent_at = CASE WHEN p_reminder_type = 'day_14' THEN NOW() ELSE day_14_sent_at END,
+        day_21_sent = CASE WHEN p_reminder_type = 'day_21' THEN TRUE ELSE day_21_sent END,
+        day_21_sent_at = CASE WHEN p_reminder_type = 'day_21' THEN NOW() ELSE day_21_sent_at END
     WHERE id = p_reminder_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

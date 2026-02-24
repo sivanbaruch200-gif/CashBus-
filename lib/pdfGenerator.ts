@@ -43,27 +43,13 @@ async function loadHebrewFont(doc: jsPDF): Promise<boolean> {
 // ============================================
 
 /**
- * Process text for RTL rendering in jsPDF.
- * jsPDF renders characters left-to-right, so the entire string is reversed.
- * When the reader scans right-to-left, they see the original text order.
- * Numbers and Latin text naturally read correctly because the reader's
- * RTL scanning reverses them back to their original LTR order.
- * Bracket characters are mirrored for correct RTL display.
+ * Modern PDF viewers (Acrobat, Chrome, Edge) implement Unicode BiDi automatically.
+ * Hebrew characters stored in logical Unicode order will be rendered RTL by the viewer.
+ * We use align:'right' for positioning and rely on the viewer for BiDi rendering.
+ * No character reversal is needed — it would cause double-reversal (viewer + manual).
  */
 function processRTL(text: string): string {
-  if (!text) return ''
-
-  // Reverse entire string for RTL base direction
-  const reversed = [...text].reverse().join('')
-
-  // Mirror bracket characters for correct RTL display
-  const mirrorMap: Record<string, string> = {
-    '(': ')', ')': '(',
-    '[': ']', ']': '[',
-    '{': '}', '}': '{',
-  }
-
-  return reversed.replace(/[()[\]{}]/g, char => mirrorMap[char] || char)
+  return text || ''
 }
 
 // ============================================
@@ -72,6 +58,20 @@ function processRTL(text: string): string {
 
 function fillTemplate(template: string, data: any): string {
   let filled = template
+
+  // Build CashBus payment section (shown in demand letters so bus companies know where to pay)
+  const bankName = data.cashusBankName || ''
+  const bankBranch = data.cashusBankBranch || ''
+  const bankAccount = data.cashusBankAccount || ''
+  const hasBankDetails = bankName || bankBranch || bankAccount
+  const cashusBankSection = hasBankDetails
+    ? `לתשלום, יש להעביר את הסכום לחשבון CashBus:
+בנק: ${bankName}
+סניף: ${bankBranch}
+מספר חשבון: ${bankAccount}
+לציון: פיצוי תביעה - מספר אסמכתא ${data.incidentId?.slice(0, 8) || ''}`
+    : ''
+
   const mapping: Record<string, string> = {
     '{{full_name}}': data.customerName || '',
     '{{id_number}}': data.idNumber || '',
@@ -91,6 +91,7 @@ function fillTemplate(template: string, data: any): string {
     '{{today_date}}': new Date().toLocaleDateString('he-IL'),
     '{{court_city}}': data.courtCity || 'תל אביב',
     '{{initial_letter_date}}': data.initialLetterDate || '',
+    '{{cashbus_payment_section}}': cashusBankSection,
   }
 
   Object.entries(mapping).forEach(([tag, value]) => {
@@ -105,19 +106,44 @@ function fillTemplate(template: string, data: any): string {
 // ============================================
 
 export async function generateLegalPDF(templateType: string, data: any): Promise<Blob> {
-  // 1. Fetch template from DB
-  const { data: templateData, error } = await supabase
-    .from('letter_templates')
-    .select('template_content')
-    .eq('template_type', templateType)
-    .single()
+  // 1. Fetch template and CashBus bank settings in parallel
+  const [templateRes, settingsRes] = await Promise.all([
+    supabase
+      .from('letter_templates')
+      .select('template_content')
+      .eq('template_type', templateType)
+      .single(),
+    supabase
+      .from('app_settings')
+      .select('key, value')
+      .in('key', ['cashbus_bank_name', 'cashbus_bank_branch', 'cashbus_bank_account']),
+  ])
 
-  if (error || !templateData) {
-    console.error('Error fetching template:', error)
+  if (templateRes.error || !templateRes.data) {
+    console.error('Error fetching template:', templateRes.error)
     throw new Error('לא נמצאה תבנית מתאימה במערכת')
   }
 
-  const finalBody = fillTemplate(templateData.template_content, data)
+  // Parse bank settings
+  const bankSettings: Record<string, string> = {}
+  if (settingsRes.data) {
+    for (const row of settingsRes.data) {
+      try {
+        bankSettings[row.key] = JSON.parse(row.value) || ''
+      } catch {
+        bankSettings[row.key] = row.value || ''
+      }
+    }
+  }
+
+  const enrichedData = {
+    ...data,
+    cashusBankName: bankSettings['cashbus_bank_name'] || '',
+    cashusBankBranch: bankSettings['cashbus_bank_branch'] || '',
+    cashusBankAccount: bankSettings['cashbus_bank_account'] || '',
+  }
+
+  const finalBody = fillTemplate(templateRes.data.template_content, enrichedData)
 
   // 2. Create PDF
   const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' })

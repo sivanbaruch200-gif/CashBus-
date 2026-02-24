@@ -1,16 +1,17 @@
 /**
- * Commission Service - Success Fee Model
+ * Commission Service - Success Fee Model (80/20)
  *
  * Business Model:
- * - Opening Fee: 29 NIS (fixed, paid upfront)
- * - Success Fee: 15% of actual compensation received
+ * - Customer pays NOTHING upfront
+ * - Bus company pays compensation → CashBus bank account
+ * - CashBus keeps 20%, forwards 80% to customer
  *
  * This service handles:
- * 1. Opening fee collection (before claim submission)
- * 2. Commission calculation (15% of actual payout)
- * 3. Settlement proof processing
- * 4. Payment request generation
- * 5. Stripe integration
+ * 1. Commission calculation (20% of actual compensation)
+ * 2. Incoming payment recording (from bus companies)
+ * 3. Payment split calculation (80/20)
+ * 4. Customer payout tracking
+ * 5. Settlement proof processing
  */
 
 import { supabase } from './supabase'
@@ -19,8 +20,8 @@ import { supabase } from './supabase'
 // Constants
 // =====================================================
 
-export const OPENING_FEE_AMOUNT = 29.00 // NIS
-export const SUCCESS_FEE_PERCENTAGE = 0.15 // 15%
+export const SUCCESS_FEE_PERCENTAGE = 0.20 // 20%
+export const CUSTOMER_PAYOUT_PERCENTAGE = 0.80 // 80%
 
 // =====================================================
 // Types
@@ -30,7 +31,7 @@ export interface PaymentRequest {
   id: string
   claim_id: string
   user_id: string
-  payment_type: 'opening_fee' | 'commission'
+  payment_type: 'commission'
   amount: number
   currency: string
   status: 'pending' | 'sent' | 'paid' | 'failed' | 'cancelled'
@@ -63,56 +64,91 @@ export interface SettlementProof {
   updated_at: string
 }
 
+export interface IncomingPayment {
+  id: string
+  claim_id: string
+  amount: number
+  payment_source?: string
+  payment_method?: string
+  reference_number?: string
+  received_date: string
+  recorded_by?: string
+  proof_url?: string
+  notes?: string
+  commission_amount?: number
+  customer_payout?: number
+  customer_payout_status: 'pending' | 'initiated' | 'completed' | 'failed'
+  customer_payout_date?: string
+  customer_payout_reference?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PaymentSplit {
+  totalAmount: number
+  commissionAmount: number
+  customerPayout: number
+}
+
 // =====================================================
 // Commission Calculation
 // =====================================================
 
 /**
- * Calculate 15% commission on actual paid amount
+ * Calculate 20% commission on actual paid amount
  */
 export function calculateCommission(actualPaidAmount: number): number {
   return Math.round(actualPaidAmount * SUCCESS_FEE_PERCENTAGE * 100) / 100
 }
 
 /**
- * Calculate total revenue for a claim (opening fee + commission)
+ * Calculate full 80/20 payment split
  */
-export function calculateTotalRevenue(
-  openingFeePaid: boolean,
-  commissionAmount?: number
-): number {
-  const openingFee = openingFeePaid ? 0 : OPENING_FEE_AMOUNT
-  const commission = commissionAmount || 0
-  return openingFee + commission
+export function calculatePaymentSplit(totalAmount: number): PaymentSplit {
+  const commissionAmount = Math.round(totalAmount * SUCCESS_FEE_PERCENTAGE * 100) / 100
+  const customerPayout = Math.round(totalAmount * CUSTOMER_PAYOUT_PERCENTAGE * 100) / 100
+  return { totalAmount, commissionAmount, customerPayout }
 }
 
 // =====================================================
-// Opening Fee Management
+// Incoming Payment Management (from bus companies)
 // =====================================================
 
 /**
- * Create payment request for opening fee (29 NIS)
- * Called when user creates a claim
+ * Record an incoming payment from a bus company
+ * The DB trigger auto-calculates 80/20 split
  */
-export async function createOpeningFeeRequest(
+export async function recordIncomingPayment(
   claimId: string,
-  userId: string
-): Promise<PaymentRequest | null> {
+  amount: number,
+  recordedBy: string,
+  options?: {
+    paymentSource?: string
+    paymentMethod?: string
+    referenceNumber?: string
+    receivedDate?: string
+    proofUrl?: string
+    notes?: string
+  }
+): Promise<IncomingPayment | null> {
   const { data, error } = await supabase
-    .from('payment_requests')
+    .from('incoming_payments')
     .insert({
       claim_id: claimId,
-      user_id: userId,
-      payment_type: 'opening_fee',
-      amount: OPENING_FEE_AMOUNT,
-      currency: 'ILS',
-      status: 'pending',
+      amount,
+      payment_source: options?.paymentSource,
+      payment_method: options?.paymentMethod,
+      reference_number: options?.referenceNumber,
+      received_date: options?.receivedDate || new Date().toISOString(),
+      recorded_by: recordedBy,
+      proof_url: options?.proofUrl,
+      notes: options?.notes,
     })
     .select()
     .single()
 
   if (error) {
-    console.error('Error creating opening fee request:', error)
+    console.error('Error recording incoming payment:', error)
     throw error
   }
 
@@ -120,41 +156,91 @@ export async function createOpeningFeeRequest(
 }
 
 /**
- * Mark opening fee as paid
+ * Get incoming payments for a claim
  */
-export async function markOpeningFeePaid(
-  claimId: string,
-  stripePaymentId: string
+export async function getClaimIncomingPayments(
+  claimId: string
+): Promise<IncomingPayment[]> {
+  const { data, error } = await supabase
+    .from('incoming_payments')
+    .select('*')
+    .eq('claim_id', claimId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('Error fetching incoming payments:', error)
+    return []
+  }
+
+  return data || []
+}
+
+// =====================================================
+// Customer Payout Management
+// =====================================================
+
+/**
+ * Mark customer payout as initiated
+ */
+export async function initiateCustomerPayout(
+  paymentId: string,
+  reference?: string
 ): Promise<void> {
+  const { error } = await supabase
+    .from('incoming_payments')
+    .update({
+      customer_payout_status: 'initiated',
+      customer_payout_reference: reference,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', paymentId)
+
+  if (error) {
+    console.error('Error initiating customer payout:', error)
+    throw error
+  }
+}
+
+/**
+ * Complete customer payout (80% transferred to customer)
+ */
+export async function completeCustomerPayout(
+  paymentId: string,
+  claimId: string,
+  reference: string
+): Promise<void> {
+  // Update incoming_payments record
+  const { error: paymentError } = await supabase
+    .from('incoming_payments')
+    .update({
+      customer_payout_status: 'completed',
+      customer_payout_date: new Date().toISOString(),
+      customer_payout_reference: reference,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', paymentId)
+
+  if (paymentError) {
+    console.error('Error completing customer payout:', paymentError)
+    throw paymentError
+  }
+
   // Update claim
   const { error: claimError } = await supabase
     .from('claims')
     .update({
-      opening_fee_paid: true,
-      opening_fee_paid_at: new Date().toISOString(),
-      opening_fee_stripe_payment_id: stripePaymentId,
+      customer_payout_completed: true,
+      customer_payout_date: new Date().toISOString(),
+      customer_payout_reference: reference,
+      commission_paid: true,
+      commission_paid_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq('id', claimId)
 
   if (claimError) {
-    console.error('Error marking opening fee paid:', claimError)
+    console.error('Error updating claim payout status:', claimError)
     throw claimError
-  }
-
-  // Update payment request
-  const { error: paymentError } = await supabase
-    .from('payment_requests')
-    .update({
-      status: 'paid',
-      paid_at: new Date().toISOString(),
-      stripe_payment_intent_id: stripePaymentId,
-    })
-    .eq('claim_id', claimId)
-    .eq('payment_type', 'opening_fee')
-
-  if (paymentError) {
-    console.error('Error updating payment request:', paymentError)
-    throw paymentError
   }
 }
 
@@ -164,7 +250,6 @@ export async function markOpeningFeePaid(
 
 /**
  * Upload settlement proof (photo of check/transfer)
- * Triggers automatic commission calculation
  */
 export async function uploadSettlementProof(
   claimId: string,
@@ -175,7 +260,6 @@ export async function uploadSettlementProof(
   userNotes?: string
 ): Promise<SettlementProof | null> {
   try {
-    // 1. Upload file to Supabase Storage
     const fileExt = file.name.split('.').pop()
     const fileName = `${claimId}_settlement_${Date.now()}.${fileExt}`
     const filePath = `settlement-proofs/${userId}/${fileName}`
@@ -189,13 +273,10 @@ export async function uploadSettlementProof(
 
     if (uploadError) throw uploadError
 
-    // 2. Get public URL
     const { data: { publicUrl } } = supabase.storage
       .from('documents')
       .getPublicUrl(filePath)
 
-    // 3. Create settlement proof record
-    // Trigger will auto-calculate commission
     const { data, error } = await supabase
       .from('settlement_proofs')
       .insert({
@@ -222,7 +303,6 @@ export async function uploadSettlementProof(
 
 /**
  * Admin verifies settlement proof
- * Updates commission to final verified amount
  */
 export async function verifySettlementProof(
   proofId: string,
@@ -244,84 +324,6 @@ export async function verifySettlementProof(
   if (error) {
     console.error('Error verifying settlement proof:', error)
     throw error
-  }
-
-  // Trigger will auto-update commission in claims table
-}
-
-// =====================================================
-// Commission Payment Requests
-// =====================================================
-
-/**
- * Create payment request for commission (15%)
- * Called after settlement proof is verified
- */
-export async function createCommissionPaymentRequest(
-  claimId: string,
-  userId: string,
-  commissionAmount: number
-): Promise<PaymentRequest | null> {
-  const { data, error } = await supabase
-    .from('payment_requests')
-    .insert({
-      claim_id: claimId,
-      user_id: userId,
-      payment_type: 'commission',
-      amount: commissionAmount,
-      currency: 'ILS',
-      status: 'pending',
-    })
-    .select()
-    .single()
-
-  if (error) {
-    console.error('Error creating commission payment request:', error)
-    throw error
-  }
-
-  return data
-}
-
-/**
- * Mark commission as paid
- */
-export async function markCommissionPaid(
-  claimId: string,
-  stripePaymentId: string,
-  stripeInvoiceId?: string
-): Promise<void> {
-  // Update claim
-  const { error: claimError } = await supabase
-    .from('claims')
-    .update({
-      commission_paid: true,
-      commission_paid_at: new Date().toISOString(),
-      commission_stripe_payment_id: stripePaymentId,
-      commission_stripe_invoice_id: stripeInvoiceId,
-    })
-    .eq('id', claimId)
-
-  if (claimError) {
-    console.error('Error marking commission paid:', claimError)
-    throw claimError
-  }
-
-  // Update payment request
-  const { error: paymentError } = await supabase
-    .from('payment_requests')
-    .update({
-      status: 'paid',
-      paid_at: new Date().toISOString(),
-      stripe_payment_intent_id: stripePaymentId,
-      stripe_invoice_id: stripeInvoiceId,
-    })
-    .eq('claim_id', claimId)
-    .eq('payment_type', 'commission')
-
-  if (paymentError) {
-    console.error('Error updating payment request:', paymentError)
-    throw paymentError
   }
 }
 
@@ -370,34 +372,17 @@ export async function getClaimSettlementProof(
 }
 
 /**
- * Get all pending payment requests for a user
+ * Get all pending customer payouts (admin view)
  */
-export async function getUserPendingPayments(
-  userId: string
-): Promise<PaymentRequest[]> {
+export async function getPendingPayouts(): Promise<IncomingPayment[]> {
   const { data, error } = await supabase
-    .from('payment_requests')
-    .select('*')
-    .eq('user_id', userId)
-    .in('status', ['pending', 'sent'])
-    .order('created_at', { ascending: false })
+    .from('incoming_payments')
+    .select('*, claims(user_id, profiles(full_name, email, bank_name, bank_branch, bank_account_number))')
+    .in('customer_payout_status', ['pending', 'initiated'])
+    .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('Error fetching pending payments:', error)
-    return []
-  }
-
-  return data || []
-}
-
-/**
- * Get outstanding payments (admin view)
- */
-export async function getOutstandingPayments(): Promise<any[]> {
-  const { data, error } = await supabase.rpc('get_outstanding_payments')
-
-  if (error) {
-    console.error('Error fetching outstanding payments:', error)
+    console.error('Error fetching pending payouts:', error)
     return []
   }
 
@@ -425,29 +410,27 @@ export async function getClaimRevenue(claimId: string): Promise<number> {
 // =====================================================
 
 /**
- * Check if claim is ready for commission collection
- * Returns true if settlement proof uploaded and verified
+ * Check if claim has received payment from bus company
  */
-export async function isReadyForCommissionCollection(
+export async function hasIncomingPayment(
   claimId: string
 ): Promise<boolean> {
-  const proof = await getClaimSettlementProof(claimId)
-  return proof !== null && proof.verified === true
+  const payments = await getClaimIncomingPayments(claimId)
+  return payments.length > 0
 }
 
 /**
- * Get claims that need settlement proof upload
- * (Approved/settled but no proof yet)
+ * Get claims awaiting incoming payment (sent but no payment received yet)
  */
-export async function getClaimsAwaitingSettlementProof(): Promise<any[]> {
+export async function getClaimsAwaitingPayment(): Promise<any[]> {
   const { data, error } = await supabase
     .from('claims')
     .select('*')
-    .in('status', ['approved', 'settled', 'paid'])
-    .is('settlement_proof_url', null)
+    .in('status', ['submitted', 'company_review'])
+    .is('incoming_payment_amount', null)
 
   if (error) {
-    console.error('Error fetching claims awaiting proof:', error)
+    console.error('Error fetching claims awaiting payment:', error)
     return []
   }
 
@@ -455,19 +438,19 @@ export async function getClaimsAwaitingSettlementProof(): Promise<any[]> {
 }
 
 /**
- * Get claims with unverified settlement proofs
- * (Admin needs to verify)
+ * Get claims with pending customer payouts
  */
-export async function getClaimsWithUnverifiedProofs(): Promise<any[]> {
-  const { data: proofs, error } = await supabase
-    .from('settlement_proofs')
-    .select('claim_id, claims(*)')
-    .eq('verified', false)
+export async function getClaimsPendingPayout(): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('claims')
+    .select('*, profiles(full_name, email, bank_name, bank_branch, bank_account_number)')
+    .eq('customer_payout_completed', false)
+    .not('incoming_payment_amount', 'is', null)
 
   if (error) {
-    console.error('Error fetching unverified proofs:', error)
+    console.error('Error fetching claims pending payout:', error)
     return []
   }
 
-  return proofs || []
+  return data || []
 }

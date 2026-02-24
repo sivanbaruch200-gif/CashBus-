@@ -112,10 +112,18 @@ export interface Profile {
   home_address?: string
   city?: string
   postal_code?: string
+  bank_name?: string
+  bank_branch?: string
+  bank_account_number?: string
+  bank_account_owner_name?: string
   total_incidents?: number
   total_claims?: number
   total_received?: number
   total_potential?: number
+  // Subscription fields
+  subscription_status?: 'free' | 'active' | 'past_due' | 'canceled' | 'trialing'
+  claims_created_count?: number
+  stripe_customer_id?: string
 }
 
 export async function getCurrentUserProfile(): Promise<Profile | null> {
@@ -258,14 +266,22 @@ export interface Claim {
   company_contact_email?: string
   final_settlement_amount?: number
   actual_paid_amount?: number
-  opening_fee_amount?: number
-  opening_fee_paid?: boolean
-  opening_fee_paid_at?: string
   system_commission_due?: number
   commission_paid?: boolean
   commission_paid_at?: string
   settlement_proof_url?: string
   settlement_date?: string
+  // Incoming payment tracking (from bus companies to CashBus)
+  incoming_payment_amount?: number
+  incoming_payment_date?: string
+  incoming_payment_reference?: string
+  incoming_payment_recorded_by?: string
+  // Customer payout tracking (from CashBus to customer)
+  customer_payout_amount?: number
+  customer_payout_date?: string
+  customer_payout_reference?: string
+  customer_payout_completed?: boolean
+  cashbus_commission_amount?: number
   current_workflow_execution_id?: string
   workflow_status?: 'not_started' | 'in_progress' | 'completed' | 'failed'
   last_workflow_action_at?: string

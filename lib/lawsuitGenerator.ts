@@ -3,7 +3,7 @@ import { getBusCompanyName } from './compensation'
 
 /**
  * Lawsuit Document Generator - כתב תביעה מוכן לנט-המשפט
- * Day 14 of GYRO Model
+ * Day 21 of reminder cycle
  */
 
 export interface LawsuitData {
@@ -134,10 +134,9 @@ export async function generateLawsuitPDF(data: LawsuitData): Promise<Blob> {
   currentY += 2
 
   const introTexts = [
-    `תביעה זו מוגשת נגד הנתבע בגין הפרת חובה חקוקה והפרת חוזה הובלה,`,
-    `בהתאם לתקנות התעבורה ולפי חוק הגנת הצרכן, התשמ"א-1981.`,
-    '',
-    `סכום התביעה: ${data.totalAmount.toLocaleString()} ₪`,
+    `תביעה זו מוגשת נגד הנתבעת בגין נזקים שנגרמו לתובע עקב הפרת חוזה הובלה`,
+    `והפרת חובה חקוקה, בניגוד לתקנות התעבורה ולתנאי הרישיון שניתן לנתבעת`,
+    `להפעלת קווי תחבורה ציבורית.`,
   ]
 
   introTexts.forEach(text => {
@@ -166,9 +165,9 @@ export async function generateLawsuitPDF(data: LawsuitData): Promise<Blob> {
 
   let factsText = ''
   if (data.incidentType === 'no_arrival' || data.incidentType === 'delay') {
-    factsText = `1. ביום ${incidentDate}, קו ${data.busLine} של הנתבע לא הגיע לתחנת "${data.stationName}".`
+    factsText = `1. ביום ${incidentDate}, קו ${data.busLine} של הנתבעת לא הגיע לתחנת "${data.stationName}".`
   } else if (data.incidentType === 'no_stop') {
-    factsText = `1. ביום ${incidentDate}, אוטובוס של הנתבע (קו ${data.busLine}) חלף על פני תחנת "${data.stationName}" מבלי לעצור, למרות שהתובע המתין בתחנה ואיתת לאוטובוס.`
+    factsText = `1. ביום ${incidentDate}, אוטובוס של הנתבעת (קו ${data.busLine}) חלף על פני תחנת "${data.stationName}" מבלי לעצור, למרות שהתובע המתין בתחנה ואיתת לאוטובוס.`
   }
 
   const facts = [
@@ -179,13 +178,13 @@ export async function generateLawsuitPDF(data: LawsuitData): Promise<Blob> {
     data.siriVerified ? '   • אימות נתוני SIRI ממשרד התחבורה - האוטובוס לא נמצא במערכת' : '',
     `   • תיעוד צילומי של ${data.receipts?.length || 0} קבלות הוצאות`,
     '',
-    `3. ביום ${new Date(data.initialLetterDate).toLocaleDateString('he-IL')}, נשלח לנתבע מכתב התראה רשמי.`,
+    `3. ביום ${new Date(data.initialLetterDate).toLocaleDateString('he-IL')}, נשלח לנתבעת מכתב התראה רשמי.`,
     '',
-    `4. במהלך 14 ימים, נשלחו לנתבע ${data.totalRemindersSent} מכתבי תזכורת (מודל ההתשה).`,
+    `4. במהלך 21 ימים, נשלחו לנתבעת ${data.totalRemindersSent} מכתבי תזכורת.`,
     '',
     data.companyResponded
-      ? '5. הנתבע השיב אך סירב לשלם או לא הציע פתרון סביר.'
-      : '5. הנתבע לא השיב למכתבים ולא שילם את הפיצוי הנדרש.',
+      ? '5. הנתבעת השיבה אך סירבה לשלם או לא הציעה פתרון סביר.'
+      : '5. הנתבעת לא השיבה למכתבים ולא שילמה את הפיצוי הנדרש.',
   ].filter(Boolean)
 
   facts.forEach(text => {
@@ -229,7 +228,7 @@ export async function generateLawsuitPDF(data: LawsuitData): Promise<Blob> {
     '',
     '4. חוק הגנת הצרכן, התשמ"א-1981 - הגנה מפני שירות לקוי חוזר.',
     '',
-    '5. הפרת חוזה הובלה - הנתבע התחייב להוביל את התובע ולא קיים את התחייבותו.'
+    '5. הפרת חוזה הובלה - הנתבעת התחייבה להוביל את התובע ולא קיימה את התחייבותה.'
   )
 
   legalBasisTexts.forEach(text => {
@@ -245,35 +244,36 @@ export async function generateLawsuitPDF(data: LawsuitData): Promise<Blob> {
   // SECTION 4: DAMAGES
   // ============================================
 
-  currentY = addRTLText('ד. פירוט הנזקים והפיצוי המבוקש', currentY, 13, 'bold')
+  currentY = addRTLText('ד. הנזקים', currentY, 13, 'bold')
   currentY += 2
 
-  // Damages box
-  doc.setFillColor(255, 248, 240)
-  doc.setDrawColor(255, 140, 0)
-  doc.setLineWidth(1)
-  doc.rect(margin, currentY, contentWidth, 45, 'FD')
+  const damageTexts = [
+    'כתוצאה מהפרת חוזה ההובלה על ידי הנתבעת, נגרמו לתובע הנזקים הבאים:',
+    '',
+    '1. הפרת חוזה הובלה ועוגמת נפש - רכישת כרטיס נסיעה מהווה חוזה מחייב',
+    '   בין הנוסע למפעיל. אי-קיום התחייבות ההובלה מהווה הפרה יסודית של חוזה זה,',
+    '   המזכה בפיצוי כספי בגין הנזקים שנגרמו.',
+    '',
+    '2. הוצאות ישירות - הוצאות נסיעה חלופיות, עלויות הגעה בדרכים חלופיות,',
+    '   והוצאות נלוות שנגרמו כתוצאה ישירה מאי-הפעלת השירות כמתוכנן.',
+    '',
+    '3. אובדן זמן - הפסד זמן יקר ערך בשל ההמתנה לשווא, מציאת חלופת',
+    '   נסיעה, והגעה באיחור ליעד.',
+    '',
+    '4. עוגמת נפש - מטרד, תסכול, אי-נוחות וטרחה שנגרמו לתובע כתוצאה',
+    '   מכשל שירותי חוזר ונשנה של הנתבעת.',
+    '',
+    '(הסכום המדויק ייקבע על ידי התובע בעת הגשת התביעה בפועל)',
+  ]
 
-  currentY += 7
-  currentY = addRTLText('1. הוצאות ישירות (קבלות):', currentY, 11, 'bold')
-  currentY = addRTLText(`   נסיעה חלופית במונית + הוצאות נלוות: ${data.damageCompensation.toLocaleString()} ₪`, currentY, 10)
-  currentY += 5
-
-  currentY = addRTLText('2. פיצוי בסיס + עגמת נפש:', currentY, 11, 'bold')
-  currentY = addRTLText(`   הפסד זמן (100 ש"ח/שעה) + עגמת נפש: ${data.baseCompensation.toLocaleString()} ₪`, currentY, 10)
-  currentY += 5
-
-  currentY = addRTLText('3. הוצאות משפט:', currentY, 11, 'bold')
-  currentY = addRTLText(`   אגרות בית משפט + שכ"ט עו"ד: ${data.legalFees.toLocaleString()} ₪`, currentY, 10)
-  currentY += 5
-
-  doc.setDrawColor(255, 140, 0)
-  doc.setLineWidth(0.5)
-  doc.line(pageWidth - margin - 80, currentY, pageWidth - margin - 10, currentY)
-  currentY += 3
-
-  currentY = addRTLText(`סה"כ תביעה: ${data.totalAmount.toLocaleString()} ₪`, currentY, 14, 'bold')
-  currentY += 10
+  damageTexts.forEach(text => {
+    if (text === '') {
+      currentY += 3
+    } else {
+      currentY = addRTLText(text, currentY, 10)
+    }
+  })
+  currentY += 8
 
   // ============================================
   // SECTION 5: RELIEF
@@ -283,11 +283,15 @@ export async function generateLawsuitPDF(data: LawsuitData): Promise<Blob> {
   currentY += 2
 
   const reliefTexts = [
-    `1. לחייב את הנתבע לשלם לתובע סך של ${data.totalAmount.toLocaleString()} ₪.`,
+    '1. לחייב את הנתבעת לשלם לתובע פיצוי כספי הולם בגין מלוא נזקיו',
+    '   כמפורט בסעיף ד\' לעיל.',
     '',
-    '2. לחייב את הנתבע בהוצאות המשפט ובשכר טרחת עורך דין.',
+    '2. לחייב את הנתבעת בהוצאות המשפט, לרבות אגרת בית משפט.',
     '',
-    '3. לחייב את הנתבע בהפרשי הצמדה וריבית כחוק מיום הגשת התביעה ועד התשלום המלא בפועל.',
+    '3. לחייב את הנתבעת בפיצוי בגין עוגמת נפש.',
+    '',
+    '4. לחייב את הנתבעת בהפרשי הצמדה וריבית כחוק מיום האירוע ועד למועד',
+    '   התשלום המלא בפועל.',
   ]
 
   reliefTexts.forEach(text => {

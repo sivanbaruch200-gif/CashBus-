@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.39.0",
     "@supabase/supabase-js": "^2.38.0",
     "file-saver": "^2.0.5",
     "https-proxy-agent": "^7.0.6",

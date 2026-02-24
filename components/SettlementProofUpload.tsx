@@ -4,7 +4,7 @@
  * Settlement Proof Upload Component
  *
  * Allows users to upload proof of payment (check photo, bank transfer screenshot)
- * Triggers automatic 15% calculation
+ * Triggers automatic 20% calculation
  */
 
 import { useState } from 'react'
@@ -105,7 +105,7 @@ export default function SettlementProofUpload({
     }
   }
 
-  const estimatedCommission = claimedAmount * 0.15
+  const estimatedCommission = claimedAmount * 0.20
 
   if (success) {
     return (
@@ -121,12 +121,12 @@ export default function SettlementProofUpload({
           <p>✅ תקבל אימייל עם חשבונית לאחר האימות</p>
 
           <div className="mt-6 p-4 bg-surface-raised rounded-lg">
-            <div className="text-sm text-content-secondary mb-2">עמלה משוערת (15%):</div>
+            <div className="text-sm text-content-secondary mb-2">עמלה משוערת (20%):</div>
             <div className="text-2xl font-bold text-accent">
               ₪{estimatedCommission.toLocaleString('he-IL', { minimumFractionDigits: 2 })}
             </div>
             <div className="text-xs text-content-tertiary mt-1">
-              15% מ-₪{claimedAmount.toLocaleString('he-IL')}
+              20% מ-₪{claimedAmount.toLocaleString('he-IL')}
             </div>
           </div>
         </div>
@@ -225,7 +225,7 @@ export default function SettlementProofUpload({
           />
         </div>
         <div className="mt-2 text-sm text-content-secondary">
-          עמלה משוערת (15%): <strong className="text-accent">₪{estimatedCommission.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</strong>
+          עמלה משוערת (20%): <strong className="text-accent">₪{estimatedCommission.toLocaleString('he-IL', { minimumFractionDigits: 2 })}</strong>
         </div>
       </div>
 
@@ -285,7 +285,7 @@ export default function SettlementProofUpload({
         <ul className="text-sm text-status-legal space-y-1">
           <li>✅ האסמכתא תאומת על ידי צוות האדמינים</li>
           <li>✅ תקבל חשבונית לתשלום לאחר האימות</li>
-          <li>✅ עמלת ההצלחה היא 15% בלבד מהסכום שקיבלת</li>
+          <li>✅ עמלת ההצלחה היא 20% בלבד מהסכום שקיבלת</li>
           <li>✅ התשלום דרך Stripe (אבטחה מקסימלית)</li>
         </ul>
       </div>

@@ -61,6 +61,15 @@ module.exports = {
         'accent-glow': '0 0 20px rgba(217, 119, 6, 0.15)',
         'card-hover': '0 8px 25px rgba(0, 0, 0, 0.3)',
       },
+      keyframes: {
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 2.5s linear infinite',
+      },
     },
   },
   plugins: [],
